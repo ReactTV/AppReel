@@ -1,0 +1,10 @@
+node_modules/
+.DS_Store
+*.log
+npm-debug.log*
+.env
+.env.local
+
+# Local test-install scratch dirs
+/.scratch/
+/tmp-install-test/

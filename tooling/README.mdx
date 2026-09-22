@@ -1,0 +1,221 @@
+# Tutorial video recorder
+
+Records a scripted walkthrough of the app (localhost dev server) as a video with an animated
+cursor, click highlighting, and auto-zoom on each click. Vendored from a third-party skill —
+see [`NOTICE.md`](./NOTICE.md) for provenance/license, and
+[`docs/MARKETING/TUTORIAL_VIDEOS/tutorial-video-recorder.ai.mdx`](../../docs/MARKETING/TUTORIAL_VIDEOS/tutorial-video-recorder.ai.mdx)
+for the PRD and design decisions behind why this tool exists and works this way.
+
+## Prerequisites
+
+- `playwright` (devDependency, already in this repo's `package.json`) with Chromium installed
+  (`npx playwright install chromium`)
+- `ffmpeg` on PATH — **mandatory**, not just for auto-zoom. `record.mjs` captures individual
+  JPEG frames itself (`page.screencast.start({ onFrame })`) rather than letting Playwright mux
+  a video internally (`{ path }`), and assembles them into the output with ffmpeg. See
+  [Output format](#output-format) for why.
+- The local dev server running (`npm run dev`, `localhost:3000`)
+
+Check with:
+
+```bash
+node .recordings/tooling/record.mjs --check-prereqs
+```
+
+## Where output goes
+
+Each video is a **flow** — a folder at `.recordings/flows/<name>/` holding its scenario
+files, an optional `setup.mjs`, a `record.mjs`, and a `README.md`. Those are tracked in git.
+Generated video files go in that flow's `.output/`, which is gitignored since they're large
+binaries; the recorder creates it. The `create-flow` skill authors a flow and `record-flow`
+re-runs one. Saved sign-in sessions live in `.recordings/auth/`, shared
+across flows and also gitignored. This is separate from `.scratchpad/`, which is for throwaway
+POC work — `.recordings/` is for videos you're actually keeping around.
+
+## 1. Save a signed-in session (once)
+
+`record.mjs` never accepts credentials directly — a scenario file should stay safe to commit.
+Generate a Playwright `storageState` file instead. There's no repo script for this yet (the
+POC's throwaway version lived in `.scratchpad/tutorial-video-poc/save-auth.mjs`); write one
+per-flow as needed, following the shape in
+[`references/auth.md`](./references/auth.md), and save the output to
+`.recordings/auth/<account>.auth.json` (gitignored) — it can impersonate whatever account
+signed in.
+
+## 2. Write a scenario
+
+A JSON file describing the start URL and every step, in order. See
+[`references/effects.md`](./references/effects.md) for the full step/effects reference
+(`click`, `type`, `select`, `press`, `wait`, `goto`; `role`/`selector`/`text`/`label` locators;
+per-step `caption` overrides; `captionPlacement`).
+
+**This repo's default: captions off.** The evaluation in the PRD/POC concluded a clean
+cursor + zoom (no text on the page itself) reads closer to the Screen Studio look we're going for
+than captions drawn over the recording — set `"effects": { "captions": false }`. The text viewers
+read lives outside the page: the presentation's [narration](./references/narration.md), a line,
+header and glow on the stage around the recording.
+
+```json
+{
+  "url": "http://localhost:3000/",
+  "effects": { "captions": false },
+  "auth": { "expect": { "role": "button", "name": "Avatar" } },
+  "steps": [
+    { "action": "click", "selector": "a[href*=\"/ch/\"]" },
+    { "action": "type", "selector": "[placeholder=\"Send a message\"]", "text": "Hello world" },
+    { "action": "press", "keys": "Enter" }
+  ]
+}
+```
+
+## 3. Record
+
+```bash
+node .recordings/tooling/record.mjs \
+  --scenario path/to/scenario.json \
+  --out path/to/output.webm \
+  --storage-state path/to/auth.json
+```
+
+Writes `output.webm`, `output.clicks.jsonl`, and `output.zooms.json`.
+
+## 4. Apply auto-zoom
+
+```bash
+node .recordings/tooling/render-auto-zoom.mjs \
+  --video path/to/output.webm \
+  --zooms path/to/output.zooms.json \
+  --out path/to/output-zoomed.mp4
+```
+
+Decoupled from recording on purpose — record once, decide on zoom (or re-render it
+differently) without re-driving the browser.
+
+## 5. Side-by-side presentation (optional)
+
+For a "broadcaster does X, here's what the viewer sees" video: record each side as its own
+scenario (one desktop, one `"device": "phone"`, likely one signed in and one anonymous — see
+[Recording two sides at once](#recording-two-sides-at-once) below for keeping them in sync),
+then wrap both in device-frame mockups and composite side by side (`--right-frame window` swaps
+the phone for a second monitor, for a right-hand clip that is a desktop app):
+
+```bash
+node .recordings/tooling/presentation/compose.mjs \
+  --desktop path/to/desktop.mp4 \
+  --mobile path/to/mobile.mp4 \
+  --out path/to/presentation.mp4 \
+  --header "What this video shows" \
+  --label-left "Broadcaster" \
+  --label-right "Viewer"
+```
+
+`--header` is a one-line title shown top-center under the React.tv branding (optional). To
+tune the header or layout without recording, run the same command with `--preview` in place of
+`--out`: it serves the stage and prints a URL to open in a browser (`--desktop`/`--mobile` are
+optional there and fill the device screens with existing clips). Without `--header`, the
+preview shows a sample title so you can judge the layout. `stage.html` is re-read on every
+refresh.
+
+The strip under the devices shows the flow's **narration**: lines set with a `narration` field on
+scenario steps, written to `<clip>.narration.json` by `record.mjs` and picked up by `compose.mjs`
+automatically. See [`references/narration.md`](./references/narration.md).
+
+This re-records [`presentation/stage.html`](./presentation/stage.html) (the two input clips
+play as native `<video>` elements inside CSS-drawn device frames) through the same
+recorder as everything else here — the frames/labels/layout are all just CSS in that one file,
+easy to reskin without touching any compositing code. Full design writeup:
+[`dual-screen-recording-poc.ai.mdx`](../../docs/MARKETING/TUTORIAL_VIDEOS/dual-screen-recording-poc.ai.mdx).
+
+### Recording two sides at once
+
+`record.mjs` exports `prepareRecording()` (navigation/sign-in) and `captureRecording()`
+(starts the screencast, runs the scenario) separately, not just the combined
+`recordWalkthrough()`. For two sides recorded concurrently, call `prepareRecording()` for both
+via `Promise.all` first, then `captureRecording()` for both via `Promise.all` — this matters
+because setup duration varies a lot between e.g. a real signed-in session restore and an
+anonymous page load, and starting each side's screencast whenever *that side's own* setup
+happens to finish produces a real, measurable wall-clock offset between the two recordings
+(caught via a countdown timer visible in the app itself reading differently on each side at
+the same composited frame). Full incident writeup, including how it was diagnosed:
+[`dual-screen-recording-poc.ai.mdx`](../../docs/MARKETING/TUTORIAL_VIDEOS/dual-screen-recording-poc.ai.mdx#follow-up-wall-clock-sync-between-the-two-recordings).
+
+```js
+import { prepareRecording, captureRecording } from "./record.mjs";
+
+const [a, b] = await Promise.all([prepareRecording(optionsA), prepareRecording(optionsB)]);
+await Promise.all([captureRecording(a), captureRecording(b)]);
+```
+
+## Output format
+
+Every mp4 the recorder writes is a finished, postable video — there is no separate export step:
+
+- H.264 High level 4.2, 4:2:0, limited-range BT.709, progressive
+- 30 fps constant, a keyframe every 2s with closed GOPs, `moov` atom first (plays while downloading)
+- audio: the recorder's own clips are silent, and every finished video carries one AAC track,
+  48 kHz stereo: the house music (see [Music](#music))
+- a side-by-side presentation is exactly 1920x1080 (16:9). A single-screen recording keeps its
+  viewport size, so record it at 1920x1080 if it will be posted
+
+The format lives in [`delivery-format.mjs`](./delivery-format.mjs). After every encode the file is
+probed and the recording fails if anything above doesn't hold (`compose.mjs` also checks the frame
+is 1920x1080), so an mp4 that exists meets the format. To check a file by hand:
+
+```bash
+node .recordings/tooling/delivery-format.mjs --check video.mp4 --size 1920x1080
+```
+
+The recorder used to write lossless 4:4:4 at 60 fps instead. That format doesn't decode in most
+browsers, phones, QuickTime or hardware players (so it fails to play or upload on Discord, X,
+LinkedIn, Instagram and the like) and produced files of tens to hundreds of MB. At CRF 18 with
+`slow` the flat-color UI content encodes to a few MB with no visible loss, so quality is traded
+away only at the final encode, once.
+
+### Music
+
+**Every finished video has the same quiet background track.** Nothing in a flow needs to ask for it:
+
+- **The track** is the one audio file in [`../music/`](../music/). To change it for every video,
+  swap that file. More than one file there is an error, since nothing says which to use. Keep a note
+  of the track's source and license beside it; whether it is free to use is yours to confirm.
+- **Where it is added.** At the end of `recordWalkthrough`, so a side-by-side presentation
+  (`compose.mjs` records its stage through it) and a single-screen recording both get it. The clips
+  that only feed a presentation's stage (`-desktop`, `-window`, `-mobile`) stay silent.
+- **What is done to it** ([`music.mjs`](./music.mjs)): cut to the video's length (looped if it is
+  shorter), levelled to **-26 LUFS** integrated, faded in over 1s and out over 2s, encoded as AAC.
+  The video stream is copied untouched. -26 LUFS is a bed, far under a normal standalone video
+  (-14 to -16): it should sit under the on-screen text without being noticed. It is a constant,
+  `MUSIC_LOUDNESS_LUFS`, if it needs nudging.
+- **Opting out.** `--no-music` on `record.mjs`, or `music: false` in the options to
+  `recordWalkthrough`. `music: "path/to/other.mp3"` uses another track for one video.
+- **An existing video** gets the track, replacing any audio it has, with
+  `node .recordings/tooling/music.mjs video.mp4`.
+- **Checking it.** The finished video has an `aac` stream (`ffprobe -v error -show_entries
+  stream=codec_name -of csv=p=0 video.mp4`) and measures about -26 LUFS
+  (`ffmpeg -hide_banner -nostats -i video.mp4 -vn -af ebur128 -f null -`, the `I:` line under
+  Summary).
+
+`presentation/stage.html` is a fixed 1920x1080 frame; its layout is designed on an 1800x950 canvas
+that is scaled to the frame width and centered vertically, with the logo in the frame's corner. The
+canvas has an explicit vertical budget (header, label, devices, then a zone below for
+[narration](./references/narration.md#layout)), and the narration is centered between the bottom of
+the devices and the bottom of the frame, so it always has a safe spot: about 75px of clear space above
+and below it under two monitors, about 45px under a monitor and a phone.
+
+**Why `record.mjs` uses `onFrame` instead of `{ path }`:** letting Playwright mux the video
+internally (the `{ path }` option) routes every frame through Playwright's own VP8 encoder
+first, with fixed settings the public API doesn't expose — the block-seam artifacting seen in the
+early POC ([`tutorial-video-recorder-poc.ai.mdx`](../../docs/MARKETING/TUTORIAL_VIDEOS/tutorial-video-recorder-poc.ai.mdx))
+was traced to that internal muxing step, present even with `quality: 100`. `onFrame` hands us the
+raw JPEG bytes directly, before that muxer ever sees them, so `record.mjs` writes each frame to
+disk itself and assembles them into a temporary lossless capture (`assembleFramesToVideo()`, full
+range 4:4:4). That capture is only ever an input: the lossy steps in the whole pipeline are each
+frame's own JPEG compression (`quality: 100`) and the one delivery encode at the end.
+
+**The 4:2:0 conversion happens once, at the very end.** Every filter chain ends with
+`DELIVERY_FILTER_TAIL`, which converts the full-range 4:4:4 frames to limited-range 4:2:0 only
+after zooming and scaling are done, so no earlier stage throws chroma away. The color tags are set
+with `setparams` (and matching x264 params), not bare `-color_range`/`-color_primaries` output
+flags, which libx264's ffmpeg wrapper only partially honors. Limited range with complete tags is
+what players expect: full-range tagging is one of the things that makes some decoders show washed
+out or crushed colors, notably near-black UI backgrounds like this app's `#0b0c0d`.

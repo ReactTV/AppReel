@@ -1,0 +1,41 @@
+{
+  "name": "@reacttv/appreel",
+  "version": "0.0.1",
+  "description": "Takes a scripted tour of your web app and hands you back a video.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "ReactTV",
+  "homepage": "https://github.com/ReactTV/AppReel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ReactTV/AppReel.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ReactTV/AppReel/issues"
+  },
+  "bin": {
+    "appreel": "./bin/install.mjs"
+  },
+  "files": [
+    "bin",
+    "tooling",
+    "skills",
+    "examples",
+    "NOTICE.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "^1.63.0"
+  },
+  "keywords": [
+    "playwright",
+    "demo",
+    "walkthrough",
+    "screen-recording",
+    "video",
+    "product-demo",
+    "tutorial-video"
+  ]
+}

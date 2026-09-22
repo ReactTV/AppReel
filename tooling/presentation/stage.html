@@ -1,0 +1,698 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        background: radial-gradient(
+          ellipse at 50% 30%,
+          #16181c 0%,
+          #0b0c0d 60%,
+          #000 100%
+        );
+        font-family: -apple-system, "Inter", "Segoe UI", system-ui, sans-serif;
+        overflow: hidden;
+      }
+      /* The layout below is designed on an 1800x950 canvas. The recording frame is
+     1920x1080 (16:9), so the canvas is scaled to the frame width and centered
+     vertically; the logo sits outside it, in the frame's true corner.
+
+     The canvas's vertical budget is explicit: header, label, devices, then the
+     narration zone, which is what is left below the devices (--narration-h),
+     never an accident of their size. Devices are 558px tall at scale 1 (a
+     monitor with its stand; a phone is sized to match).
+
+     Two monitors side by side fill the canvas width at scale 1 and cannot grow,
+     which leaves a 229px narration zone (it runs to the bottom of the frame, and
+     the text is centered in it). A monitor beside a phone has the width to grow,
+     to 1.1x, which leaves a 173px zone: the header and one-line caption take
+     ~90px, so ~42px of clear space above and below. That is the phone layout's
+     --device-scale. */
+      :root {
+        --header-h: 140px;
+        --label-h: 54px; /* the label's 26px line and its 28px margin */
+        /* The canvas is centered in the frame, so the frame runs this far past the
+           canvas's bottom edge: (1080 - 33.333) / 1.066667 - 950. The narration
+           is centered between the devices and the bottom of the FRAME, so its
+           zone includes it. */
+        --frame-margin: 31.25px;
+      }
+      body {
+        --device-scale: 1.1;
+        --device-h: calc(558px * var(--device-scale));
+        --narration-h: calc(950px + var(--frame-margin) - var(--header-h) - var(--label-h) - var(--device-h));
+      }
+      body.dual {
+        --device-scale: 1;
+      }
+      /* zoom scales the layout box, not just the paint, so the narration zone
+         below really does shrink to make room. */
+      .monitor,
+      .stand-neck,
+      .stand-foot,
+      .phone {
+        zoom: var(--device-scale);
+      }
+      .canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 1800px;
+        height: 950px;
+        transform-origin: 0 0;
+        transform: translateY(33.333px) scale(1.066667);
+        display: flex;
+        flex-direction: column;
+      }
+      .stage {
+        width: 100%;
+        flex: none;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        gap: 100px;
+        padding-top: var(--header-h);
+      }
+      /* --- Header: wordmark + flow-defined title, centered in the space above
+     the labels. Must stay within the stage's 140px top padding. --- */
+      .header {
+        position: absolute;
+        top: 20px;
+        left: 0;
+        right: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      /* Tucked into the top-right corner of the stage. */
+      .logo {
+        position: absolute;
+        top: 26px;
+        right: 26px;
+        height: 24px;
+        width: auto;
+      }
+      /* Matches the root loader ident's wordmark
+         (src/components/react-tv-ident/react-tv-ident.constants.ts). */
+      .wordmark {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 18px;
+        letter-spacing: 0.32em;
+        color: #f2f1ee;
+      }
+      .wordmark b {
+        font-weight: 700;
+      }
+      .wordmark span {
+        font-weight: 300;
+        color: #b9b7bd;
+      }
+      .title {
+        color: rgba(255, 255, 255, 0.85);
+        font-size: 34px;
+        font-weight: 600;
+      }
+      .title:empty {
+        display: none;
+      }
+      /* --- Narration: a small header (Step 3, See it in action) over one line of
+     what is happening, centered in the narration zone below the devices. The
+     zone is --narration-h tall in every layout (see the budget above), so it
+     fits a header and a one-line caption with room to spare (see
+     references/narration.md). Items stack in one grid cell: the old one rises
+     and fades out while the next rises in from below. --- */
+      .narration {
+        flex: none;
+        height: var(--narration-h);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 0 120px;
+      }
+      /* Fixed heights, so a line without a header sits where one with a header
+         does, and the text never jumps between the two. */
+      .narration-header-box,
+      .narration-lines {
+        display: grid;
+        place-items: center;
+      }
+      .narration-header-box {
+        height: 30px;
+      }
+      .narration-lines {
+        min-height: 53px;
+      }
+      .narration-item {
+        grid-area: 1 / 1;
+        text-align: center;
+        line-height: 1.25;
+        opacity: 0;
+        transform: translateY(var(--travel));
+        /* --narration-in/-out are set from ?narrationIn/?narrationOut, which
+           compose.mjs takes from narration.mjs. The old item clears out fast
+           (ease-out) while the new one arrives gently (ease-in-out), so the two
+           are not both legible in the same spot. */
+        transition:
+          opacity var(--narration-in) ease-in-out,
+          transform var(--narration-in) ease-in-out;
+      }
+      .narration-item.in {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .narration-item.out {
+        opacity: 0;
+        transform: translateY(calc(var(--travel) * -1));
+        transition:
+          opacity var(--narration-out) ease-out,
+          transform var(--narration-out) ease-out;
+      }
+      .narration-line {
+        --travel: 28px;
+        /* Soft yellow and a size above the title's, so it reads as its own
+           thing next to the white header. */
+        color: #f4d35e;
+        font-size: 42px;
+        font-weight: 600;
+      }
+      /* Supporting context rather than a step to follow: white, and a lighter
+         weight, so it sits back from the yellow steps. */
+      .narration-line.aside {
+        color: rgba(255, 255, 255, 0.82);
+        font-weight: 500;
+      }
+      .narration-header {
+        --travel: 14px;
+        display: flex;
+        justify-content: center;
+        color: rgba(244, 211, 94, 0.7);
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      /* A header that ends in a number ("Step 3") is a still prefix and a
+         number that swaps on its own, so only the number moves between steps. */
+      .narration-prefix {
+        white-space: pre;
+      }
+      .narration-suffixes {
+        display: grid;
+      }
+      .narration-header.aside {
+        color: rgba(255, 255, 255, 0.55);
+      }
+      /* --- Focus: the monitor the current line is about. Deliberately quiet: its
+     label goes white with the faintest yellow glow, and its frame gets a thin
+     yellow rim and a very soft halo. --- */
+      .label {
+        transition:
+          color 500ms ease,
+          text-shadow 500ms ease;
+      }
+      .monitor,
+      .phone {
+        transition: box-shadow 500ms ease;
+      }
+      .column.active .label {
+        color: rgba(255, 255, 255, 0.95);
+        text-shadow: 0 0 12px rgba(244, 211, 94, 0.35);
+      }
+      .column.active .monitor {
+        box-shadow:
+          0 0 0 1px rgba(244, 211, 94, 0.4),
+          0 0 26px 0 rgba(244, 211, 94, 0.12),
+          0 40px 80px rgba(0, 0, 0, 0.55),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      }
+      .column.active .phone {
+        box-shadow:
+          0 0 0 1px rgba(244, 211, 94, 0.4),
+          0 0 26px 0 rgba(244, 211, 94, 0.12),
+          0 40px 80px rgba(0, 0, 0, 0.55),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      }
+      .column {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      .label {
+        color: rgba(255, 255, 255, 0.55);
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin-bottom: 28px;
+      }
+
+      /* --- Desktop monitor --- */
+      .monitor {
+        width: 840px;
+        padding: 20px 20px 0 20px;
+        background: linear-gradient(180deg, #2a2b2f 0%, #17181b 100%);
+        border-radius: 18px;
+        box-shadow:
+          0 40px 80px rgba(0, 0, 0, 0.55),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+      }
+      .monitor .screen {
+        width: 800px;
+        height: 450px;
+        border-radius: 4px;
+        overflow: hidden;
+        background: #000;
+      }
+      .monitor .screen video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .monitor .chin {
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .monitor .chin::after {
+        content: "";
+        width: 64px;
+        height: 6px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .stand-neck {
+        width: 26px;
+        height: 34px;
+        background: linear-gradient(180deg, #222327 0%, #17181b 100%);
+        margin: 0 auto;
+      }
+      .stand-foot {
+        width: 260px;
+        height: 14px;
+        border-radius: 7px;
+        background: linear-gradient(180deg, #222327 0%, #17181b 100%);
+        margin: 0 auto;
+        box-shadow: 0 18px 30px rgba(0, 0, 0, 0.5);
+      }
+
+      /* --- Phone ---
+     Sized so the phone's own overall height (padding + screen + padding)
+     matches the monitor's full vertical extent (padding + screen + chin +
+     stand-neck + stand-foot = --device-h, 558px), not just the screen area —
+     the two devices should read as the same size on screen, phone silhouette
+     scaled proportionally wider to stay a realistic phone aspect ratio rather
+     than just stretched. */
+      .phone {
+        width: 343px;
+        padding: 16px;
+        background: linear-gradient(160deg, #2c2d31 0%, #16171a 100%);
+        border-radius: 16px;
+        box-shadow:
+          0 40px 80px rgba(0, 0, 0, 0.55),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        position: relative;
+      }
+      /* Deliberately much smaller than the outer case radius above — a real
+     iPhone's display corner radius is subtle; matching the case radius here
+     clipped visible app content (nav icons, corner text) at the edges. */
+      .phone .screen {
+        width: 311px;
+        height: 526px;
+        border-radius: 14px;
+        overflow: hidden;
+        background: #000;
+        position: relative;
+      }
+      .phone .screen video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .phone .side-button {
+        position: absolute;
+        width: 4px;
+        background: #0f1013;
+        border-radius: 2px;
+      }
+      .phone .side-button.mute {
+        right: -4px;
+        top: 102px;
+        height: 30px;
+      }
+      .phone .side-button.vol-up {
+        left: -4px;
+        top: 139px;
+        height: 44px;
+      }
+      .phone .side-button.vol-down {
+        left: -4px;
+        top: 196px;
+        height: 44px;
+      }
+      .phone .side-button.power {
+        right: -4px;
+        top: 159px;
+        height: 60px;
+      }
+
+      /* --- Dual-window layout (?rightFrame=window) ---
+     For flows whose second screen is a desktop app window, not a phone. Both
+     panels are monitors, the same size as the single monitor in the phone
+     layout. Screens stay 16:9. */
+      #window-column {
+        display: none;
+      }
+      body.dual #window-column {
+        display: flex;
+      }
+      body.dual #phone-column {
+        display: none;
+      }
+      body.dual .stage {
+        gap: 60px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1
+      style="
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        opacity: 0;
+      "
+    >
+      Presentation stage
+    </h1>
+    <svg
+      class="logo"
+      viewBox="32 36 106 104"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M51.75 106.375C51.25 111.375 48.5 114.083 43.5 114.5C41.1667 114.5 39.125 113.75 37.375 112.25C35.7083 110.667 34.875 108.708 34.875 106.375V47.125C34.9583 44.7917 35.8333 42.875 37.5 41.375C39.1667 39.7917 41.1667 39 43.5 39H49.625H65H95.875C96.375 39 96.875 39.0417 97.375 39.125H98.125C103.958 39.2917 108.75 40.625 112.5 43.125C116.25 45.625 118.958 48.5 120.625 51.75C122.292 54.9167 123.125 58.125 123.125 61.375C123.125 64.7083 122.292 68 120.625 71.25C119.042 74.4167 116.333 77.25 112.5 79.75C108.75 82.25 103.958 83.5833 98.125 83.75H76.125C76.7917 87.9167 78.1667 91 80.25 93C82.25 95 84.7917 96 87.875 96H114.875C117.208 96.0833 119.125 96.9583 120.625 98.625C122.208 100.292 123 102.292 123 104.625C122.917 106.875 122.083 108.792 120.5 110.375C119 111.875 117.125 112.667 114.875 112.75H85.625C79.4583 112.833 73.875 110.417 68.875 105.5C63.875 100.583 60.8333 94.75 59.75 88C58.25 80.5 57.5 76.2917 57.5 75.375C57.5 73.0417 58.2917 71.0833 59.875 69.5C61.5417 67.8333 63.5417 67 65.875 67H98.875C100.458 66.9167 101.75 66.5833 102.75 66C103.833 65.3333 104.625 64.625 105.125 63.875C105.625 63.0417 105.875 62.2083 105.875 61.375C105.875 60.5417 105.625 59.75 105.125 59C104.625 58.1667 103.833 57.4583 102.75 56.875C101.75 56.2083 100.458 55.8333 98.875 55.75H65H55C52.8333 55.8333 51.75 56.9167 51.75 59V106.375Z"
+        fill="white"
+      />
+      <path
+        d="M106.48 118.696C106.512 118.072 106.576 117.592 106.672 117.256C108.4 117.544 110.472 117.688 112.888 117.688C115.304 117.688 117.832 117.4 120.472 116.824C120.2 118.856 119.168 119.968 117.376 120.16C116.816 120.24 115.952 120.32 114.784 120.4C114.752 120.864 114.488 122.896 113.992 126.496C113.496 130.08 113.248 132.552 113.248 133.912C113.248 135.272 113.36 136.216 113.584 136.744C112.224 136.392 111.296 135.928 110.8 135.352C110.304 134.76 110.056 134.032 110.056 133.168C110.056 132.304 110.256 130.432 110.656 127.552C111.072 124.656 111.32 122.328 111.4 120.568C110.104 120.632 108.832 120.664 107.584 120.664C106.848 120.664 106.48 120.008 106.48 118.696ZM127.239 136C127.111 136.048 126.791 136.112 126.279 136.192C125.767 136.288 125.295 136.336 124.863 136.336C124.447 136.336 124.207 136.216 124.143 135.976C123.855 134.984 123.423 133.048 122.847 130.168C122.271 127.272 121.687 124.648 121.095 122.296C120.519 119.944 119.959 118.384 119.415 117.616C120.295 117.2 120.991 116.992 121.503 116.992C122.015 116.992 122.383 117.048 122.607 117.16C122.831 117.272 123.047 117.52 123.255 117.904C123.479 118.288 123.671 118.8 123.831 119.44C124.071 120.4 124.367 121.824 124.719 123.712C125.071 125.6 125.271 126.64 125.319 126.832C125.879 129.68 126.247 131.632 126.423 132.688C127.463 130.464 128.615 127.512 129.879 123.832C131.143 120.136 131.775 117.736 131.775 116.632C133.583 116.936 134.487 117.528 134.487 118.408C134.487 119.064 134.031 120.456 133.119 122.584C132.223 124.696 131.135 127.136 129.855 129.904C128.591 132.656 127.719 134.688 127.239 136Z"
+        fill="white"
+      />
+    </svg>
+    <div class="canvas">
+      <div class="header">
+        <div class="wordmark"><b>REACT</b><span>.TV</span></div>
+        <div class="title" id="title"></div>
+      </div>
+      <div class="stage">
+        <div class="column" id="left-column">
+          <div class="label" id="label-left">Broadcaster</div>
+          <div class="monitor">
+            <div class="screen">
+              <video id="desktop" muted playsinline></video>
+            </div>
+            <div class="chin"></div>
+          </div>
+          <div class="stand-neck"></div>
+          <div class="stand-foot"></div>
+        </div>
+        <div class="column" id="window-column">
+          <div class="label" id="label-right-window">Viewer</div>
+          <div class="monitor">
+            <div class="screen">
+              <video id="window" muted playsinline></video>
+            </div>
+            <div class="chin"></div>
+          </div>
+          <div class="stand-neck"></div>
+          <div class="stand-foot"></div>
+        </div>
+        <div class="column" id="phone-column">
+          <div class="label" id="label-right">Viewer</div>
+          <div class="phone">
+            <div class="side-button mute"></div>
+            <div class="side-button vol-up"></div>
+            <div class="side-button vol-down"></div>
+            <div class="side-button power"></div>
+            <div class="screen">
+              <video id="mobile" muted playsinline></video>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="narration">
+        <div class="narration-header-box" id="narration-header-box"></div>
+        <div class="narration-lines" id="narration-lines"></div>
+      </div>
+    </div>
+    <script>
+      // Driven entirely by query params so this page is reusable across
+      // recordings rather than one-off per pair of videos:
+      //   ?desktop=<url>&mobile=<url>&labelLeft=<text>&labelRight=<text>&header=<text>
+      //   &rightFrame=window   (optional; second monitor instead of the phone)
+      //   &narration=<url>     (optional; scheduled lines: {start, text, style, header, focus})
+      const params = new URLSearchParams(location.search);
+
+      // Headers always render in title case, whatever the flow passes. Small
+      // words stay lowercase mid-title; other words only get their first
+      // letter raised, so acronyms like "CAM" are left alone.
+      const SMALL_WORDS = new Set([
+        "a",
+        "an",
+        "and",
+        "as",
+        "at",
+        "but",
+        "by",
+        "for",
+        "in",
+        "nor",
+        "of",
+        "on",
+        "or",
+        "the",
+        "to",
+        "up",
+        "via",
+      ]);
+      const titleCase = (text) => {
+        const words = text.split(" ");
+        return words
+          .map((word, i) => {
+            const isEdge = i === 0 || i === words.length - 1;
+            if (!isEdge && SMALL_WORDS.has(word.toLowerCase())) {
+              return word.toLowerCase();
+            }
+            return word.charAt(0).toUpperCase() + word.slice(1);
+          })
+          .join(" ");
+      };
+
+      // No ?header means the page was opened for design work, so show a sample
+      // title. Recordings always pass ?header (empty when a flow has none).
+      document.getElementById("title").textContent = titleCase(
+        params.get("header") ?? "Add your first piece of content",
+      );
+
+      // Preview only (?fit): the stage is a fixed 1920x1080 frame, so scale it
+      // down to fit a smaller browser window instead of clipping the right side.
+      // Recording never sets this, so output stays exactly 1920x1080.
+      if (params.has("fit")) {
+        const fitToWindow = () => {
+          document.documentElement.style.zoom = Math.min(
+            innerWidth / 1920,
+            innerHeight / 1080,
+          );
+        };
+        fitToWindow();
+        addEventListener("resize", fitToWindow);
+      }
+      // ?rightFrame=window swaps the phone for a second monitor-style window;
+      // the right-hand clip still arrives as ?mobile=, whichever frame shows it.
+      const isDual = params.get("rightFrame") === "window";
+      document.body.classList.toggle("dual", isDual);
+      const desktop = document.getElementById("desktop");
+      const mobile = document.getElementById(isDual ? "window" : "mobile");
+      desktop.src = params.get("desktop") ?? "/desktop.mp4";
+      mobile.src = params.get("mobile") ?? "/mobile.mp4";
+      document.getElementById("label-left").textContent =
+        params.get("labelLeft") ?? "Broadcaster";
+      const labelRight = params.get("labelRight") ?? "Viewer";
+      document.getElementById("label-right").textContent = labelRight;
+      document.getElementById("label-right-window").textContent = labelRight;
+
+      async function playBoth() {
+        const ready = (v) =>
+          v.readyState >= 3
+            ? Promise.resolve()
+            : new Promise((r) =>
+                v.addEventListener("canplay", r, { once: true }),
+              );
+        await Promise.all([ready(desktop), ready(mobile)]);
+        desktop.currentTime = 0;
+        mobile.currentTime = 0;
+        await Promise.all([desktop.play(), mobile.play()]);
+      }
+      playBoth();
+
+      // Narration: the header and line under the devices are whichever entry
+      // started most recently, judged by the desktop clip's own playback time so
+      // they stay in step with the video however the recorder paces this page.
+      // The list is already scheduled (compose.mjs), so every line has had its
+      // time to read. Each entry also says which monitor it is about.
+      const narrationOutMs = Number(params.get("narrationOut"));
+      document.documentElement.style.setProperty(
+        "--narration-in",
+        `${Number(params.get("narrationIn"))}ms`,
+      );
+      document.documentElement.style.setProperty(
+        "--narration-out",
+        `${narrationOutMs}ms`,
+      );
+      // One swapper per row. It animates only when its text or tone changes, so
+      // a header shared by several lines stays put while the lines change.
+      const makeSwapper = (box, kind) => {
+        let current = null;
+        let shown = "";
+        return (text, style) => {
+          const key = `${style ?? "step"}|${text}`;
+          if (key === shown) return;
+          shown = key;
+          const old = current;
+          current = null;
+          if (old) {
+            // Keep the tone class: an outgoing white line must not flip to yellow.
+            old.classList.remove("in");
+            old.classList.add("out");
+            setTimeout(() => old.remove(), narrationOutMs + 50);
+          }
+          if (!text) return;
+          const el = document.createElement("div");
+          const tone = style === "aside" ? " aside" : "";
+          el.className = `narration-item ${kind}${tone}`;
+          el.textContent = text;
+          box.appendChild(el);
+          el.getBoundingClientRect(); // commit the start state so it transitions
+          el.className = `narration-item ${kind}${tone} in`;
+          current = el;
+        };
+      };
+      // The header row. A header ending in a number is split into a still prefix
+      // ("Step ") and the number; when only the number differs, only the number
+      // animates, so "1" rises out as "2" rises in under a "Step" that stays put.
+      // Anything else swaps whole, like a line.
+      const headerBox = document.getElementById("narration-header-box");
+      const splitHeader = (text) => {
+        const match = /^(.*\s)(\d+)$/.exec(text);
+        return match ? { prefix: match[1], number: match[2] } : { prefix: null };
+      };
+      const leave = (el) => {
+        el.classList.remove("in");
+        el.classList.add("out");
+        setTimeout(() => el.remove(), narrationOutMs + 50);
+      };
+      let header = null; // { el, prefix, tone, suffixes, number }
+      let shownHeader = "";
+      const showHeader = (text, style) => {
+        const key = `${style ?? "step"}|${text}`;
+        if (key === shownHeader) return;
+        shownHeader = key;
+        const tone = style === "aside" ? " aside" : "";
+        const parts = splitHeader(text);
+        if (header && parts.prefix !== null && parts.prefix === header.prefix && tone === header.tone) {
+          leave(header.number);
+          const number = document.createElement("div");
+          number.className = "narration-item";
+          number.textContent = parts.number;
+          header.suffixes.appendChild(number);
+          number.getBoundingClientRect(); // commit the start state so it transitions
+          number.className = "narration-item in";
+          header.number = number;
+          return;
+        }
+        if (header) leave(header.el);
+        header = null;
+        if (!text) return;
+        const el = document.createElement("div");
+        el.className = `narration-item narration-header${tone}`;
+        let suffixes = null;
+        let number = null;
+        if (parts.prefix !== null) {
+          const prefix = document.createElement("span");
+          prefix.className = "narration-prefix";
+          prefix.textContent = parts.prefix;
+          suffixes = document.createElement("span");
+          suffixes.className = "narration-suffixes";
+          number = document.createElement("div");
+          number.className = "narration-item in";
+          number.textContent = parts.number;
+          suffixes.appendChild(number);
+          el.append(prefix, suffixes);
+        } else {
+          el.textContent = text;
+        }
+        headerBox.appendChild(el);
+        el.getBoundingClientRect(); // commit the start state so it transitions
+        el.className = `narration-item narration-header${tone} in`;
+        header = { el, prefix: parts.prefix, tone, suffixes, number };
+      };
+      const showLine = makeSwapper(
+        document.getElementById("narration-lines"),
+        "narration-line",
+      );
+      const leftColumn = document.getElementById("left-column");
+      const rightColumn = document.getElementById(
+        isDual ? "window-column" : "phone-column",
+      );
+      const showFocus = (focus) => {
+        leftColumn.classList.toggle("active", focus === "left" || focus === "both");
+        rightColumn.classList.toggle("active", focus === "right" || focus === "both");
+      };
+      async function runNarration() {
+        const src = params.get("narration");
+        if (!src) {
+          // Opened for design work (?fit), so show a sample. Recordings never
+          // pass ?fit.
+          if (params.has("fit")) {
+            showHeader("Step 1");
+            showLine("Click the embed details link");
+            showFocus("left");
+          }
+          return;
+        }
+        const lines = await (await fetch(src)).json();
+        const tick = () => {
+          const ms = desktop.currentTime * 1000;
+          let current = { text: "" };
+          for (const line of lines) {
+            if (line.start > ms) break;
+            current = line;
+          }
+          showHeader(current.header ?? "", current.style);
+          showLine(current.text, current.style);
+          showFocus(current.focus);
+          requestAnimationFrame(tick);
+        };
+        tick();
+      }
+      runNarration();
+    </script>
+  </body>
+</html>
