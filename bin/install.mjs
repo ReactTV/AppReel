@@ -16,22 +16,38 @@
 // merge into someone else's AGENTS.md wrong is worse than not attempting
 // it. Every path below is built from TARGET_ROOT so this stays true as the
 // file grows — never construct a target path from `cwd` directly.
+//
+// No surprises: every command here does exactly one predictable thing.
+// Nothing runs automatically (no postinstall hook) — you always trigger
+// install/update yourself.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.join(__dirname, "..");
 const cwd = process.cwd();
 const TARGET_ROOT = path.join(cwd, ".appreel");
+const PACKAGE_VERSION = JSON.parse(
+  fs.readFileSync(path.join(packageRoot, "package.json"), "utf8"),
+).version;
 
 function usage() {
   console.log(`Usage: appreel <command>
 
 Commands:
-  install    Copy AppReel's tooling and skills into ./.appreel/, and
+  install    First-time setup: copy tooling/skills into ./.appreel/ and
              scaffold the folders your project adds its own content to
-             (music, auth, shared helpers, custom frames)
+             (music, auth, shared helpers, custom frames, flows)
+  update     Refresh tooling/skills to match the installed npm package —
+             does not touch flows, music, auth, or anything else you own
+  status     Is .appreel/ installed, is it up to date, are prerequisites
+             (ffmpeg, Playwright) satisfied
+  uninstall  Remove tooling/ and skills/ only — never touches flows/,
+             music/, auth/, shared/, or frames/
+  help       This message
+  version    Print the installed appreel version
 `);
 }
 
@@ -48,9 +64,27 @@ function underTarget(relPath) {
   return resolved;
 }
 
-// tooling/ and skills/ are package-owned — always overwritten on reinstall so
-// updates actually take. Never edit them for one flow's needs (the skills say
-// so too); if you need to, you're supposed to fork the package instead.
+// A one-line, package-owned marker of which appreel version tooling/skills
+// currently match — always overwritten alongside them. Deliberately its own
+// file, not a line inside .appreel/README.md: README.md is write-once/
+// project-owned (never touched after first creation, so a user's edits to it
+// are safe), and a version stamp needs to change on every install/update —
+// those two requirements can't both live in the same file.
+const VERSION_STAMP_PATH = ".installed-version";
+
+function readInstalledVersion() {
+  const stampPath = underTarget(VERSION_STAMP_PATH);
+  if (!fs.existsSync(stampPath)) return null;
+  return fs.readFileSync(stampPath, "utf8").trim() || null;
+}
+
+function writeInstalledVersion() {
+  fs.writeFileSync(underTarget(VERSION_STAMP_PATH), `${PACKAGE_VERSION}\n`);
+}
+
+// tooling/ and skills/ are package-owned — always overwritten so updates
+// actually take. Never edit them for one flow's needs (the skills say so
+// too); if you need to, you're supposed to fork the package instead.
 function copyPackageOwned() {
   const copies = [
     { from: path.join(packageRoot, "tooling"), to: underTarget("tooling") },
@@ -62,6 +96,7 @@ function copyPackageOwned() {
     fs.cpSync(from, to, { recursive: true });
     console.log(`Copied   ${path.relative(cwd, to)}`);
   }
+  writeInstalledVersion();
 }
 
 // Everything below is content the project itself owns (music, sessions,
@@ -98,6 +133,16 @@ Everything AppReel needs to script and produce walkthrough videos of this app.
 
 Start with \`/create-flow\` to script a new video, \`/record-flow\` to re-render an existing one.
 Read [\`tooling/README.mdx\`](./tooling/README.mdx) for how the recorder itself works.
+
+## Keeping this up to date
+
+This folder was copied in by \`npx @reacttv/appreel\`, not installed as a runtime dependency, so
+updates don't happen automatically:
+
+- \`npx @reacttv/appreel status\` — is this folder up to date, are prerequisites satisfied
+- \`npx @reacttv/appreel update\` — refresh \`tooling/\` and \`skills/\` after bumping the npm
+  package (never touches this file, \`flows/\`, or anything else here)
+- \`npx @reacttv/appreel uninstall\` — remove \`tooling/\` and \`skills/\` only
 `,
   );
 
@@ -185,10 +230,10 @@ function install() {
   scaffoldProjectOwned();
 
   console.log(`
-AppReel installed into .appreel/
+AppReel ${PACKAGE_VERSION} installed into .appreel/
 
 Next steps:
-  1. Check prerequisites: node .appreel/tooling/record.mjs --check-prereqs
+  1. Check prerequisites: npx @reacttv/appreel status
   2. Add a background track: .appreel/music/ (optional — see its README)
   3. Wire up create-flow / record-flow for your coding agent (pick one):
        Claude Code:  ln -s ../../.appreel/skills/create-flow .claude/skills/create-flow
@@ -198,14 +243,111 @@ Next steps:
                       special format required. Adding a line to your AGENTS.md
                       is the most portable way to make that stick.
      See the README for more on this.
+
+Later, after bumping the npm package: npx @reacttv/appreel update
 `);
+}
+
+function update() {
+  if (!fs.existsSync(TARGET_ROOT)) {
+    console.error("Nothing installed yet — run `npx @reacttv/appreel install` first.");
+    process.exit(1);
+  }
+  const previous = readInstalledVersion();
+  copyPackageOwned();
+  if (previous === PACKAGE_VERSION) {
+    console.log(`\ntooling/ and skills/ already match ${PACKAGE_VERSION} — nothing changed.`);
+  } else if (previous) {
+    console.log(`\nUpdated tooling/ and skills/: ${previous} -> ${PACKAGE_VERSION}`);
+  } else {
+    console.log(`\nUpdated tooling/ and skills/ to ${PACKAGE_VERSION} (no previous version was recorded).`);
+  }
+}
+
+function status() {
+  if (!fs.existsSync(TARGET_ROOT)) {
+    console.log("Not installed. Run `npx @reacttv/appreel install`.");
+    return;
+  }
+  const installed = readInstalledVersion();
+  if (installed === null) {
+    console.log(
+      "tooling/skills version unknown (installed before version stamping existed) — " +
+        "run `npx @reacttv/appreel update` to bring it current.",
+    );
+  } else if (installed === PACKAGE_VERSION) {
+    console.log(`Up to date: tooling/skills match the installed package (${PACKAGE_VERSION}).`);
+  } else {
+    console.log(
+      `Update available: .appreel/ is on ${installed}, node_modules has ${PACKAGE_VERSION} — ` +
+        "run `npx @reacttv/appreel update`.",
+    );
+  }
+
+  console.log("");
+  const recordMjs = underTarget("tooling/record.mjs");
+  if (!fs.existsSync(recordMjs)) {
+    console.log("tooling/record.mjs missing — run `npx @reacttv/appreel install`.");
+    return;
+  }
+  spawnSync(process.execPath, [recordMjs, "--check-prereqs"], { stdio: "inherit" });
+}
+
+function uninstall() {
+  if (!fs.existsSync(TARGET_ROOT)) {
+    console.log("Nothing installed.");
+    return;
+  }
+  let removedAny = false;
+  for (const relPath of ["tooling", "skills", VERSION_STAMP_PATH]) {
+    const target = underTarget(relPath);
+    if (fs.existsSync(target)) {
+      fs.rmSync(target, { recursive: true, force: true });
+      console.log(`Removed  ${path.relative(cwd, target)}`);
+      removedAny = true;
+    }
+  }
+  if (!removedAny) {
+    console.log("tooling/ and skills/ were already gone.");
+  }
+  const remaining = fs.readdirSync(TARGET_ROOT);
+  if (remaining.length > 0) {
+    console.log(`\nLeft untouched in .appreel/ (your own content): ${remaining.join(", ")}`);
+  } else {
+    console.log("\n.appreel/ is now empty — remove it yourself if you're done with AppReel.");
+  }
+}
+
+function printVersion() {
+  console.log(PACKAGE_VERSION);
 }
 
 const [, , command] = process.argv;
 
-if (command === "install") {
-  install();
-} else {
-  usage();
-  process.exit(command ? 1 : 0);
+switch (command) {
+  case "install":
+    install();
+    break;
+  case "update":
+    update();
+    break;
+  case "status":
+    status();
+    break;
+  case "uninstall":
+    uninstall();
+    break;
+  case "help":
+  case "-h":
+  case "--help":
+    usage();
+    break;
+  case "version":
+  case "-v":
+  case "--version":
+    printVersion();
+    break;
+  default:
+    usage();
+    process.exit(command ? 1 : 0);
 }

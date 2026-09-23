@@ -16,7 +16,23 @@ npx @reacttv/appreel install
 ```
 
 Copies the recorder tooling and the `create-flow` / `record-flow` skills into `.appreel/` in
-your project.
+your project, and scaffolds the folders your project adds its own content to (`music/`, `auth/`,
+`shared/`, `frames/`, `flows/`).
+
+## Commands
+
+AppReel is copied into your project, not installed as a runtime dependency (the same pattern as
+`shadcn add` or `convex ai-files install`), so updates don't happen automatically just because
+you bumped the npm package — nothing here runs on its own, you always trigger it:
+
+| Command | Does |
+| --- | --- |
+| `npx @reacttv/appreel install` | First-time setup (see above). Safe to re-run — never overwrites anything you've added |
+| `npx @reacttv/appreel update` | Refreshes `tooling/` and `skills/` to match the installed npm package. Touches nothing else — not `flows/`, `music/`, `auth/`, `shared/`, `frames/`, or `.appreel/README.md` |
+| `npx @reacttv/appreel status` | Is `.appreel/` installed, is it up to date with `node_modules`, and are prerequisites (ffmpeg, Playwright) satisfied |
+| `npx @reacttv/appreel uninstall` | Removes `tooling/` and `skills/` only — never touches anything you own |
+| `npx @reacttv/appreel help` | Lists these commands |
+| `npx @reacttv/appreel version` | Prints the installed AppReel version |
 
 ## Prerequisites
 
@@ -25,11 +41,8 @@ your project.
 - `ffmpeg` on `PATH`
 - A local dev server to record against
 
-Check with:
-
-```bash
-node .appreel/tooling/record.mjs --check-prereqs
-```
+Check with `npx @reacttv/appreel status` (or directly:
+`node .appreel/tooling/record.mjs --check-prereqs`).
 
 ## Using `create-flow` / `record-flow` with your coding agent
 
