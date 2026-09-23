@@ -1,0 +1,117 @@
+# AI voiceover narration — plan
+
+**Status:** Not started — planning only, deliberately deferred.
+
+**Scope:** Add an opt-in spoken-narration option to staged flows (anything recorded through
+`composePresentation`), using a free, local, open-weight TTS model. Does not touch raw
+single-screen recordings (see [Explicitly out of scope](#explicitly-out-of-scope)).
+
+---
+
+## Why
+
+Narration today is on-screen text only (a line, a header, a glow — see
+[`references/narration.md`](../tooling/references/narration.md)). A user asked whether AI voice
+narration could be a free option, since a couple of competing tools in this space already offer
+"AI voiceover" as a feature. Researched what's actually freely available for a Node.js CLI tool
+before committing to an approach.
+
+### TTS options researched
+
+| Option | License | Node story | Verdict |
+| --- | --- | --- | --- |
+| **Kokoro-82M** (`kokoro-js`) | Apache 2.0 (weights) | Real npm package, runs via ONNX/transformers.js directly in Node (`device: "cpu"`), no subprocess, no API key | **Chosen.** Best fit: local, no key, actual npm dependency, license matches the rest of the stack |
+| **Piper TTS** | Original `rhasspy/piper` was MIT but is archived (Oct 2025, read-only); actively maintained fork `OHF-Voice/piper1-gpl` is GPL-3.0-or-later | No official Node binding; would mean shelling out to a separately-downloaded binary (same shape as the existing `ffmpeg` dependency) | Viable fallback if Kokoro quality/voice selection disappoints, but weaker Node integration and a license worth being deliberate about (subprocess use is fine — same reasoning as shelling out to `ffmpeg` — but it's not a plain npm dependency) |
+| Cloud APIs (ElevenLabs, Google/Azure/AWS TTS) | Proprietary, free tiers exist | Require an account + API key | Rejected as the default — breaks the "everything runs locally, zero signup" character of this tool (just Playwright + ffmpeg today). Could be a future bring-your-own-key opt-in, not v1 |
+
+Kokoro-82M's model file (`kokoro-v1_0.pth`) is ~327MB — downloaded once by `kokoro-js`
+(transformers.js caching), not bundled into the npm package itself, the same pattern as
+`npx playwright install chromium`.
+
+---
+
+## The core design problem: synthesis has to happen before scheduling
+
+Today, a narration line's on-screen hold time is a heuristic:
+`max(2.1s, characters ÷ 17 per second)` (`narrationHoldMs` in
+[`narration.mjs`](../tooling/presentation/narration.mjs)). Once there's real speech audio, its
+actual spoken duration is the *correct* hold time — the heuristic would otherwise fight the
+voice (text vanishing mid-sentence, or lingering silently after the words end).
+
+So the pipeline has to become:
+
+1. Synthesize each line's audio first (Kokoro, one buffer per line)
+2. Use each buffer's real duration as that line's hold time
+3. *Then* run `scheduleNarration` using real durations instead of the character estimate
+4. Mix the speech clips + background music into the final audio track, once every line's real
+   start time is known
+
+This reorders the existing flow, where scheduling currently happens independently of any audio
+concern.
+
+## Music has to duck under speech
+
+`music.mjs` today: cut/loop the track to length, level to -26 LUFS, fade in/out, encode — no
+awareness of speech, because there's never been any to duck against. With voiceover, the music
+needs to drop under the voice while a line is talking and return to its normal bed level
+otherwise, or the two will fight. The standard tool for this is ffmpeg's `sidechaincompress`
+filter (compress/lower one signal based on another's level) — implementable, but real new logic,
+not a tweak.
+
+---
+
+## Proposed shape (for when this is picked up)
+
+**Files:**
+
+| File | Change |
+| --- | --- |
+| `package.json` | New dependency: `kokoro-js` |
+| `tooling/presentation/voiceover.mjs` (new) | Synthesizes each narration line via Kokoro; returns audio buffers + real durations |
+| `tooling/presentation/narration.mjs` | `scheduleNarration` accepts an optional real `holdMs` per line, falling back to the character heuristic when absent — so the no-voice path is byte-for-byte unchanged |
+| `tooling/music.mjs` (or a new mixing step) | Ducks the background track under speech via `sidechaincompress` instead of a flat mix |
+| `tooling/presentation/compose.mjs` | Wires it together behind a `voice` option, **default off** — preserves today's silent/text-only behavior unless a flow opts in |
+| `skills/create-flow/SKILL.md` | A new planning question: spoken narration, on-screen text only, or both? Plus voice selection if overriding the default |
+| `tooling/README.mdx` | A "Voiceover" section next to "Music" |
+
+**Open questions to resolve before implementation starts:**
+
+- **Default voice.** Kokoro ships several (different accents/genders) — pick one sensible
+  default and expose an override, unless a specific one is wanted.
+- **Captions when voice is on.** Default assumption: **show both** — on-screen text stays even
+  with voice, since captions matter for accessibility and silent/muted viewing (a real use case
+  for product demo videos). Revisit if that reads as redundant once there's a real example to
+  judge.
+- **Exact `kokoro-js` API** (constructor, method names, output format) wasn't verified in detail
+  during research — check its actual README/types before writing `voiceover.mjs`, don't assume
+  the shape from search snippets alone.
+
+---
+
+## Explicitly out of scope (v1)
+
+| Item | Why |
+| --- | --- |
+| Voiceover on raw single-screen recordings | `scheduleNarration` never runs for them today (no stage, no timing model to hook into) — would need its own design pass |
+| Cloud TTS / bring-your-own-key | Breaks the zero-signup character of the tool; revisit only if Kokoro's quality proves insufficient |
+| Piper TTS integration | Kokoro is the primary choice; Piper stays a documented fallback option, not built alongside it |
+| Multi-language voice matching per screen | Kokoro's voice selection is global to a flow in this plan, not per-screen |
+
+---
+
+## Decisions log
+
+| Date | Decision |
+| --- | --- |
+| 2026-09-22 | Chose **Kokoro-82M** via `kokoro-js` over Piper TTS and cloud APIs — best match for a local-only, no-API-key, Apache-licensed tool that fits alongside the existing Playwright + ffmpeg dependencies. Piper's actively maintained fork is now GPL-3.0 (usable via subprocess, same reasoning as `ffmpeg`, but weaker Node integration since there's no official npm binding); cloud APIs require accounts/keys, which this tool has none of today. |
+| 2026-09-22 | Scoped v1 to staged flows only — raw single-screen recordings have no scheduling pass to hook real audio durations into, and forcing one in just for voiceover is a separate design problem. |
+| 2026-09-22 | Voice is opt-in, default off — must not change any existing flow's output silently. |
+| 2026-09-22 | Deferred implementation entirely — captured as this plan doc instead of building, per explicit request, so the design isn't lost but doesn't block other in-flight work (the N-screen compositor, Phase 5 starter flow, dogfooding). |
+
+---
+
+## Related documentation
+
+- [`tooling/references/narration.md`](../tooling/references/narration.md) — the existing on-screen narration system this plan extends
+- [`tooling/music.mjs`](../tooling/music.mjs) — the existing music-mixing step this plan adds ducking to
+- [AppReel OSS extraction plan](https://github.com/ReactTV/reacttv/blob/main/docs/MARKETING/TUTORIAL_VIDEOS/appreel-oss-extraction.plan.ai.mdx) — the broader extraction plan this feature sits alongside, in the source `reacttv` repo
