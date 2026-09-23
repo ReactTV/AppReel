@@ -9,5 +9,9 @@ npm-debug.log*
 /.scratch/
 /tmp-install-test/
 
-# Generated example recordings
-/examples/*/.output/
+# Generated example output — keep the finished demo videos (small, checked in
+# on purpose as proof/reference), ignore the intermediates (click logs, zoom
+# suggestions, narration JSON, per-screen clips that feed a composited one)
+/examples/*/.output/*
+!/examples/*/.output/single-screen-demo.mp4
+!/examples/*/.output/dual-screen-demo-presentation.mp4
