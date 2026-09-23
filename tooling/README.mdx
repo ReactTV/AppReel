@@ -1,20 +1,18 @@
 # Tutorial video recorder
 
-Records a scripted walkthrough of the app (localhost dev server) as a video with an animated
-cursor, click highlighting, and auto-zoom on each click. Vendored from a third-party skill —
-see [`NOTICE.md`](./NOTICE.md) for provenance/license, and
-[`docs/MARKETING/TUTORIAL_VIDEOS/tutorial-video-recorder.ai.mdx`](../../docs/MARKETING/TUTORIAL_VIDEOS/tutorial-video-recorder.ai.mdx)
-for the PRD and design decisions behind why this tool exists and works this way.
+Records a scripted walkthrough of a web app (against your local dev server) as a video with an
+animated cursor, click highlighting, and auto-zoom on each click. The core recorder is vendored
+from a third-party skill — see [`NOTICE.md`](./NOTICE.md) for provenance/license.
 
 ## Prerequisites
 
-- `playwright` (devDependency, already in this repo's `package.json`) with Chromium installed
+- `playwright` (a dependency of this package) with Chromium installed
   (`npx playwright install chromium`)
 - `ffmpeg` on PATH — **mandatory**, not just for auto-zoom. `record.mjs` captures individual
   JPEG frames itself (`page.screencast.start({ onFrame })`) rather than letting Playwright mux
   a video internally (`{ path }`), and assembles them into the output with ffmpeg. See
   [Output format](#output-format) for why.
-- The local dev server running (`npm run dev`, `localhost:3000`)
+- Your project's local dev server running, at whatever URL your scenario's `start` points to
 
 Check with:
 
@@ -35,9 +33,7 @@ POC work — `.recordings/` is for videos you're actually keeping around.
 ## 1. Save a signed-in session (once)
 
 `record.mjs` never accepts credentials directly — a scenario file should stay safe to commit.
-Generate a Playwright `storageState` file instead. There's no repo script for this yet (the
-POC's throwaway version lived in `.scratchpad/tutorial-video-poc/save-auth.mjs`); write one
-per-flow as needed, following the shape in
+Generate a Playwright `storageState` file instead: write a one-off script following the shape in
 [`references/auth.md`](./references/auth.md), and save the output to
 `.recordings/auth/<account>.auth.json` (gitignored) — it can impersonate whatever account
 signed in.
@@ -59,10 +55,10 @@ header and glow on the stage around the recording.
 {
   "url": "http://localhost:3000/",
   "effects": { "captions": false },
-  "auth": { "expect": { "role": "button", "name": "Avatar" } },
+  "auth": { "expect": { "role": "button", "name": "Account" } },
   "steps": [
-    { "action": "click", "selector": "a[href*=\"/ch/\"]" },
-    { "action": "type", "selector": "[placeholder=\"Send a message\"]", "text": "Hello world" },
+    { "action": "click", "selector": "a[href*=\"/settings\"]" },
+    { "action": "type", "selector": "[placeholder=\"Search\"]", "text": "Hello world" },
     { "action": "press", "keys": "Enter" }
   ]
 }
@@ -91,59 +87,73 @@ node .recordings/tooling/render-auto-zoom.mjs \
 Decoupled from recording on purpose — record once, decide on zoom (or re-render it
 differently) without re-driving the browser.
 
-## 5. Side-by-side presentation (optional)
+## 5. Multi-screen presentation (optional)
 
-For a "broadcaster does X, here's what the viewer sees" video: record each side as its own
-scenario (one desktop, one `"device": "phone"`, likely one signed in and one anonymous — see
-[Recording two sides at once](#recording-two-sides-at-once) below for keeping them in sync),
-then wrap both in device-frame mockups and composite side by side (`--right-frame window` swaps
-the phone for a second monitor, for a right-hand clip that is a desktop app):
+For a "change something here, here's what happens there" video: record each screen as its own
+scenario (one desktop, one `"device": "phone"`, however many you need — see
+[Recording multiple screens at once](#recording-multiple-screens-at-once) below for keeping them
+in sync), then wrap them in device frames and composite them together:
 
 ```bash
 node .recordings/tooling/presentation/compose.mjs \
-  --desktop path/to/desktop.mp4 \
-  --mobile path/to/mobile.mp4 \
+  --screens screens.json \
   --out path/to/presentation.mp4 \
-  --header "What this video shows" \
-  --label-left "Broadcaster" \
-  --label-right "Viewer"
+  --header "What this video shows"
 ```
 
-`--header` is a one-line title shown top-center under the React.tv branding (optional). To
-tune the header or layout without recording, run the same command with `--preview` in place of
-`--out`: it serves the stage and prints a URL to open in a browser (`--desktop`/`--mobile` are
-optional there and fill the device screens with existing clips). Without `--header`, the
-preview shows a sample title so you can judge the layout. `stage.html` is re-read on every
-refresh.
+`screens.json` is an array, one entry per screen:
 
-The strip under the devices shows the flow's **narration**: lines set with a `narration` field on
+```json
+[
+  { "name": "desktop", "label": "Desktop", "frame": "desktop", "clip": "path/to/desktop.mp4" },
+  { "name": "mobile", "label": "Mobile", "frame": "mobile", "clip": "path/to/mobile.mp4" }
+]
+```
+
+`frame` is one of `desktop | mobile | mac | windows | chrome | custom | none` (run
+`compose.mjs --help` for the full reference, including how `custom` works). Any number of
+screens is fine — the stage zooms the whole row to fit.
+
+`--header` is a one-line title shown top-center (optional); `--wordmark` shows a small brand
+mark above it (also optional — neither is shown unless you pass it). To tune the header or
+layout without recording, run the same command with `--preview` in place of `--out`: it serves
+the stage and prints a URL to open in a browser (clips are optional there and fill the screens
+if given). Without `--header`, the preview shows a sample title so you can judge the layout.
+`stage.html` is re-read on every refresh.
+
+The strip under the screens shows the flow's **narration**: lines set with a `narration` field on
 scenario steps, written to `<clip>.narration.json` by `record.mjs` and picked up by `compose.mjs`
 automatically. See [`references/narration.md`](./references/narration.md).
 
-This re-records [`presentation/stage.html`](./presentation/stage.html) (the two input clips
-play as native `<video>` elements inside CSS-drawn device frames) through the same
-recorder as everything else here — the frames/labels/layout are all just CSS in that one file,
-easy to reskin without touching any compositing code. Full design writeup:
-[`dual-screen-recording-poc.ai.mdx`](../../docs/MARKETING/TUTORIAL_VIDEOS/dual-screen-recording-poc.ai.mdx).
+This re-records [`presentation/stage.html`](./presentation/stage.html) (each input clip plays as
+a native `<video>` element inside a CSS-drawn frame) through the same recorder as everything else
+here — the frames/labels/layout are all just CSS and a small amount of DOM-building JS in that
+one file, easy to reskin without touching any compositing code.
 
-### Recording two sides at once
+### Recording multiple screens at once
 
 `record.mjs` exports `prepareRecording()` (navigation/sign-in) and `captureRecording()`
 (starts the screencast, runs the scenario) separately, not just the combined
-`recordWalkthrough()`. For two sides recorded concurrently, call `prepareRecording()` for both
-via `Promise.all` first, then `captureRecording()` for both via `Promise.all` — this matters
-because setup duration varies a lot between e.g. a real signed-in session restore and an
-anonymous page load, and starting each side's screencast whenever *that side's own* setup
-happens to finish produces a real, measurable wall-clock offset between the two recordings
-(caught via a countdown timer visible in the app itself reading differently on each side at
-the same composited frame). Full incident writeup, including how it was diagnosed:
-[`dual-screen-recording-poc.ai.mdx`](../../docs/MARKETING/TUTORIAL_VIDEOS/dual-screen-recording-poc.ai.mdx#follow-up-wall-clock-sync-between-the-two-recordings).
+`recordWalkthrough()`. Two things need aligning across screens recorded concurrently:
+
+- **Starting together.** Setup duration varies a lot between e.g. a real signed-in session
+  restore and an anonymous page load — starting each screen's screencast whenever *that screen's
+  own* setup happens to finish produces a real, measurable wall-clock offset. Fix: call
+  `prepareRecording()` for every screen via `Promise.all` first, *then* `captureRecording()` for
+  every screen via `Promise.all`, so every screencast starts within the same tick.
+- **Ending together.** One screen's scenario can finish its steps before another's. Fix: pass a
+  shared `createRecordingSyncBarrier(participantCount)` to every `captureRecording()` call as
+  `{ sync: barrier }` — each call marks itself done and then waits for every other screen to
+  finish its own steps before any of them starts its tail padding, so they all end at the same
+  point instead of trailing off one by one.
 
 ```js
-import { prepareRecording, captureRecording } from "./record.mjs";
+import { prepareRecording, captureRecording, createRecordingSyncBarrier } from "./record.mjs";
 
-const [a, b] = await Promise.all([prepareRecording(optionsA), prepareRecording(optionsB)]);
-await Promise.all([captureRecording(a), captureRecording(b)]);
+const optionsPerScreen = [optionsA, optionsB, optionsC]; // any number
+const prepared = await Promise.all(optionsPerScreen.map(prepareRecording));
+const sync = createRecordingSyncBarrier(prepared.length);
+const recorded = await Promise.all(prepared.map((p) => captureRecording(p, { sync })));
 ```
 
 ## Output format
@@ -196,16 +206,14 @@ away only at the final encode, once.
   Summary).
 
 `presentation/stage.html` is a fixed 1920x1080 frame; its layout is designed on an 1800x950 canvas
-that is scaled to the frame width and centered vertically, with the logo in the frame's corner. The
-canvas has an explicit vertical budget (header, label, devices, then a zone below for
-[narration](./references/narration.md#layout)), and the narration is centered between the bottom of
-the devices and the bottom of the frame, so it always has a safe spot: about 75px of clear space above
-and below it under two monitors, about 45px under a monitor and a phone.
+that is scaled to the frame width and centered vertically. The canvas has an explicit vertical
+budget (header, then the row of screens, then a fixed-height zone at the bottom for
+[narration](./references/narration.md#layout)) — the row of screens zooms down to fit whatever
+count and frame types you give it, so the narration zone's size never depends on layout.
 
 **Why `record.mjs` uses `onFrame` instead of `{ path }`:** letting Playwright mux the video
 internally (the `{ path }` option) routes every frame through Playwright's own VP8 encoder
-first, with fixed settings the public API doesn't expose — the block-seam artifacting seen in the
-early POC ([`tutorial-video-recorder-poc.ai.mdx`](../../docs/MARKETING/TUTORIAL_VIDEOS/tutorial-video-recorder-poc.ai.mdx))
+first, with fixed settings the public API doesn't expose — the block-seam artifacting this caused
 was traced to that internal muxing step, present even with `quality: 100`. `onFrame` hands us the
 raw JPEG bytes directly, before that muxer ever sees them, so `record.mjs` writes each frame to
 disk itself and assembles them into a temporary lossless capture (`assembleFramesToVideo()`, full

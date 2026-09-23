@@ -1,11 +1,9 @@
 #!/usr/bin/env node
-// Wraps two already-recorded clips (e.g. a desktop scenario and a mobile
-// scenario recorded via .recordings/tooling/record.mjs) in device-frame
+// Wraps any number of already-recorded clips (e.g. a desktop scenario and a
+// mobile scenario recorded via .recordings/tooling/record.mjs) in device-frame
 // mockups side by side and re-records the result — see stage.html for the
 // actual layout/styling. Reuses the same lossless recorder as everything
-// else in .recordings/tooling/, so it gets the same output format;
-// see docs/MARKETING/TUTORIAL_VIDEOS/dual-screen-recording-poc.ai.mdx for
-// how this came about.
+// else in .recordings/tooling/, so it gets the same output format.
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -24,138 +22,219 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 16:9, the aspect ratio every social platform and editor expects.
 const STAGE_WIDTH = 1920;
 const STAGE_HEIGHT = 1080;
-const MIME = { ".html": "text/html", ".mp4": "video/mp4", ".webm": "video/webm" };
+const MIME = {
+  ".html": "text/html",
+  ".css": "text/css",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+};
+// "custom" needs a customFrame directory (template.html + style.css) this
+// package never ships — bring your own. "none" is fullscreen, no wrapper.
+const FRAME_TYPES = ["desktop", "mobile", "mac", "windows", "chrome", "custom", "none"];
 
 function printUsage(stream) {
-  stream.write(`Usage: compose.mjs --desktop FILE --mobile FILE --out FILE
-                  [--header TEXT] [--label-left TEXT] [--label-right TEXT]
-                  [--right-frame phone|window]
-       compose.mjs --preview [--desktop FILE] [--mobile FILE] [--narration FILE]
-                  [--header TEXT] [--label-left TEXT] [--label-right TEXT]
-                  [--right-frame phone|window]
+  stream.write(`Usage: compose.mjs --screens FILE --out FILE [--header TEXT] [--wordmark TEXT]
+                  [--narration FILE]
+       compose.mjs --preview --screens FILE [--narration FILE] [--header TEXT] [--wordmark TEXT]
 
-Wraps two recorded clips in device-frame mockups (desktop monitor + phone),
-side by side, and records the composited result. Both input clips should
-already exist (e.g. from record.mjs) — this only handles presentation. The
-result carries the house music (see music.mjs).
+Wraps any number of recorded clips in device frames, side by side, and
+records the composited result. Clips should already exist (e.g. from
+record.mjs) — this only handles presentation. The result carries the house
+music (see music.mjs).
 
---right-frame window swaps the phone for a second monitor-style window, for a
-right-hand clip that is a desktop app rather than a phone (--mobile still
-names that clip). Default: phone.
+--screens FILE points to a JSON array (composePresentation() also accepts
+this as a plain array directly, when called from a flow's record.mjs):
 
-Narration (the line of text under the devices) is read from the
+  [
+    { "name": "desktop", "label": "Desktop", "frame": "desktop", "clip": "desktop.mp4" },
+    { "name": "mobile",  "label": "Mobile",  "frame": "mobile",  "clip": "mobile.mp4" }
+  ]
+
+frame is one of: ${FRAME_TYPES.join(" | ")}.
+"custom" also takes customFrame: a directory with template.html (containing
+one element marked data-video-slot) and style.css. This package ships no
+default look for it — bring your own, or ask your coding agent to write one.
+"none" is fullscreen, no device wrapper at all.
+
+--wordmark TEXT shows a small brand wordmark above the title (e.g. your app's
+name). Omit it and none is shown — this is optional, not required.
+
+Narration (the line of text under the screens) is read from the
 <clip>.narration.json that record.mjs writes to each clip's artifacts/
-subfolder, and the two sides are merged by time and scheduled so every line
+subfolder, merged across every screen by time and scheduled so every line
 stays up long enough to read (narration.mjs; rules in references/narration.md).
+A step's narrationFocus should name its screen (or "all" / "none").
 --narration FILE names a JSON list of {"t": ms, "text": "..."} instead, for
 previewing.
 
 --preview serves the stage and prints its URL instead of recording, so the
 layout can be tuned in a browser (stage.html is re-read on every refresh).
-The clips are optional there; without them the device screens stay black.
+Clips are optional there; without them the screens stay black.
 `);
 }
 
 function parseArgs(argv) {
   const args = {
-    desktop: null,
-    mobile: null,
+    screens: null,
     out: null,
     header: null,
+    wordmark: null,
     narration: null,
-    labelLeft: "Broadcaster",
-    labelRight: "Viewer",
-    rightFrame: "phone",
     preview: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--desktop") args.desktop = argv[++i];
-    else if (arg === "--mobile") args.mobile = argv[++i];
+    if (arg === "--screens") args.screens = argv[++i];
     else if (arg === "--out") args.out = argv[++i];
     else if (arg === "--header") args.header = argv[++i];
+    else if (arg === "--wordmark") args.wordmark = argv[++i];
     else if (arg === "--narration") args.narration = argv[++i];
-    else if (arg === "--label-left") args.labelLeft = argv[++i];
-    else if (arg === "--label-right") args.labelRight = argv[++i];
-    else if (arg === "--right-frame") {
-      args.rightFrame = argv[++i];
-      if (!["phone", "window"].includes(args.rightFrame)) {
-        throw new Error(`--right-frame must be "phone" or "window", got: ${args.rightFrame}`);
-      }
-    } else if (arg === "--preview") args.preview = true;
+    else if (arg === "--preview") args.preview = true;
     else if (arg === "--help" || arg === "-h") args.help = true;
     else throw new Error(`unrecognized argument: ${arg}`);
   }
   return args;
 }
 
-function serveStage({ desktopPath, mobilePath, narration = [] }) {
+// Accepts a path to a JSON file (CLI usage) or an already-parsed array
+// (composePresentation()/previewStage() called directly from a flow's
+// record.mjs), and validates + normalizes every screen entry.
+function resolveScreens(screensOption) {
+  const screens =
+    typeof screensOption === "string"
+      ? JSON.parse(fs.readFileSync(path.resolve(screensOption), "utf8"))
+      : (screensOption ?? []);
+  if (!Array.isArray(screens) || screens.length === 0) {
+    throw new Error("screens must be a non-empty array of {name, label, frame, clip}");
+  }
+  return screens.map((screen) => {
+    if (!screen.name) throw new Error("every screen needs a name");
+    if (!FRAME_TYPES.includes(screen.frame)) {
+      throw new Error(`screen "${screen.name}".frame must be one of ${FRAME_TYPES.join(", ")}`);
+    }
+    if (screen.frame === "custom" && !screen.customFrame) {
+      throw new Error(`screen "${screen.name}" has frame "custom" but no customFrame directory`);
+    }
+    return {
+      name: screen.name,
+      label: screen.label ?? screen.name,
+      frame: screen.frame,
+      clip: screen.clip ? path.resolve(screen.clip) : null,
+      customFrame: screen.customFrame ? path.resolve(screen.customFrame) : null,
+    };
+  });
+}
+
+function serveFile(res, filePath) {
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(404);
+    res.end();
+    return;
+  }
+  const contentType = MIME[path.extname(filePath)] ?? "application/octet-stream";
+  const stat = fs.statSync(filePath);
+  res.writeHead(200, { "Content-Type": contentType, "Content-Length": stat.size });
+  fs.createReadStream(filePath).pipe(res);
+}
+
+// Same as serveFile, plus HTTP range support — required for <video> seeking.
+function serveVideo(req, res, filePath) {
+  const contentType = MIME[path.extname(filePath)] ?? "application/octet-stream";
+  const stat = fs.statSync(filePath);
+  const range = req.headers.range;
+  if (range) {
+    const match = /bytes=(\d*)-(\d*)/.exec(range);
+    const start = match[1] ? parseInt(match[1], 10) : 0;
+    const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
+    res.writeHead(206, {
+      "Content-Type": contentType,
+      "Content-Length": end - start + 1,
+      "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+      "Accept-Ranges": "bytes",
+    });
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+    return;
+  }
+  res.writeHead(200, { "Content-Type": contentType, "Content-Length": stat.size, "Accept-Ranges": "bytes" });
+  fs.createReadStream(filePath).pipe(res);
+}
+
+function serveStage({ screens = [], narration = [] }) {
+  const screenByName = new Map(screens.map((screen) => [screen.name, screen]));
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       const url = new URL(req.url, "http://localhost");
-      let filePath;
+
       if (url.pathname === "/" || url.pathname === "/stage.html") {
-        filePath = path.join(__dirname, "stage.html");
-      } else if (url.pathname === "/desktop.mp4" && desktopPath) {
-        filePath = desktopPath;
-      } else if (url.pathname === "/mobile.mp4" && mobilePath) {
-        filePath = mobilePath;
-      } else if (url.pathname === "/narration.json") {
+        return serveFile(res, path.join(__dirname, "stage.html"));
+      }
+
+      if (url.pathname === "/screens.json") {
+        const publicScreens = screens.map((screen) => ({
+          name: screen.name,
+          label: screen.label,
+          frame: screen.frame,
+          clip: screen.clip ? `/screen/${encodeURIComponent(screen.name)}.mp4` : null,
+          template:
+            screen.frame === "custom" && screen.customFrame
+              ? `/frame/${encodeURIComponent(screen.name)}/template.html`
+              : null,
+          style:
+            screen.frame === "custom" && screen.customFrame
+              ? `/frame/${encodeURIComponent(screen.name)}/style.css`
+              : null,
+        }));
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(publicScreens));
+        return;
+      }
+
+      if (url.pathname === "/narration.json") {
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(narration));
         return;
-      } else {
-        res.writeHead(404);
-        res.end();
-        return;
       }
-      const ext = path.extname(filePath);
-      const stat = fs.statSync(filePath);
-      const contentType = MIME[ext] ?? "application/octet-stream";
-      const range = req.headers.range;
-      if (range) {
-        const match = /bytes=(\d*)-(\d*)/.exec(range);
-        const start = match[1] ? parseInt(match[1], 10) : 0;
-        const end = match[2] ? parseInt(match[2], 10) : stat.size - 1;
-        res.writeHead(206, {
-          "Content-Type": contentType,
-          "Content-Length": end - start + 1,
-          "Content-Range": `bytes ${start}-${end}/${stat.size}`,
-          "Accept-Ranges": "bytes",
-        });
-        fs.createReadStream(filePath, { start, end }).pipe(res);
-        return;
+
+      const screenMatch = url.pathname.match(/^\/screen\/([^/]+)\.mp4$/);
+      if (screenMatch) {
+        const screen = screenByName.get(decodeURIComponent(screenMatch[1]));
+        if (screen?.clip) return serveVideo(req, res, screen.clip);
       }
-      res.writeHead(200, { "Content-Type": contentType, "Content-Length": stat.size, "Accept-Ranges": "bytes" });
-      fs.createReadStream(filePath).pipe(res);
+
+      const frameMatch = url.pathname.match(/^\/frame\/([^/]+)\/(template\.html|style\.css)$/);
+      if (frameMatch) {
+        const screen = screenByName.get(decodeURIComponent(frameMatch[1]));
+        if (screen?.customFrame) return serveFile(res, path.join(screen.customFrame, frameMatch[2]));
+      }
+
+      res.writeHead(404);
+      res.end();
     });
     server.listen(0, "127.0.0.1", () => resolve(server));
   });
 }
 
-function stageQuery({ header, labelLeft, labelRight, rightFrame, hasNarration }) {
+// Screen data (name/label/frame/clip URLs) goes to the page via /screens.json,
+// fetched client-side — an N-length structured array doesn't belong in a
+// query string. Only the handful of page-wide scalars go here.
+function stageQuery({ header, wordmark, hasNarration }) {
   const query = new URLSearchParams({
-    desktop: "/desktop.mp4",
-    mobile: "/mobile.mp4",
-    labelLeft,
-    labelRight,
     narrationIn: String(NARRATION_IN_MS),
     narrationOut: String(NARRATION_OUT_MS),
   });
   if (typeof header === "string") query.set("header", header);
-  if (rightFrame === "window") query.set("rightFrame", rightFrame);
+  if (typeof wordmark === "string") query.set("wordmark", wordmark);
   if (hasNarration) query.set("narration", "/narration.json");
   return query;
 }
 
 async function previewStage(options) {
-  const desktopPath = options.desktop && path.resolve(options.desktop);
-  const mobilePath = options.mobile && path.resolve(options.mobile);
+  const screens = resolveScreens(options.screens);
   const { lines, warnings } = scheduleNarration(
-    loadNarration({ desktopPath, mobilePath, narrationFile: options.narration }),
+    loadNarration({ screens, narrationFile: options.narration }),
   );
   warnings.forEach((warning) => process.stderr.write(`narration: ${warning}\n`));
-  const server = await serveStage({ desktopPath, mobilePath, narration: lines });
+  const server = await serveStage({ screens, narration: lines });
   const port = server.address().port;
   const query = stageQuery({ ...options, hasNarration: lines.length > 0 });
   query.set("fit", "1");
@@ -164,25 +243,25 @@ async function previewStage(options) {
 }
 
 export async function composePresentation(options) {
-  const desktopPath = path.resolve(options.desktop);
-  const mobilePath = path.resolve(options.mobile);
+  const screens = resolveScreens(options.screens);
   const outPath = path.resolve(options.out);
-  const [desktopProbe, mobileProbe] = await Promise.all([probeVideo(desktopPath), probeVideo(mobilePath)]);
+  const probes = await Promise.all(screens.map((screen) => probeVideo(screen.clip)));
   const tailPaddingMs = Number.isFinite(options.tailPaddingMs) ? options.tailPaddingMs : 800;
-  const waitMs = Math.max(desktopProbe.durationMs, mobileProbe.durationMs) + tailPaddingMs;
+  const waitMs = Math.max(...probes.map((probe) => probe.durationMs)) + tailPaddingMs;
 
   const { lines, warnings } = scheduleNarration(
-    loadNarration({ desktopPath, mobilePath, narrationFile: options.narration }),
+    loadNarration({ screens, narrationFile: options.narration }),
     { endMs: waitMs },
   );
   warnings.forEach((warning) => process.stderr.write(`narration: ${warning}\n`));
-  const server = await serveStage({ desktopPath, mobilePath, narration: lines });
+  const server = await serveStage({ screens, narration: lines });
   const port = server.address().port;
   // Always pass a header (empty if none) so a recording never falls back to
   // the stage's sample title, which is only for previewing.
   const query = stageQuery({
     ...options,
     header: options.header ?? "",
+    wordmark: options.wordmark ?? "",
     hasNarration: lines.length > 0,
   });
 
@@ -224,7 +303,7 @@ async function main(argv = process.argv.slice(2)) {
     await previewStage(args);
     return null;
   }
-  if (!args.desktop || !args.mobile || !args.out) {
+  if (!args.screens || !args.out) {
     printUsage(process.stderr);
     return 2;
   }

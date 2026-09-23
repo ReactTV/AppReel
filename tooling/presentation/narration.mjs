@@ -49,21 +49,18 @@ function clipPathForNarration(file) {
   return path.join(path.dirname(path.dirname(file)), base);
 }
 
-// One timeline for the whole stage: each clip's narration file, merged by time.
-// Both clips start together, so their times share a clock. A given narrationFile
-// replaces the per-clip files (for previewing).
-// Each line is tagged with the side of the video its step is on (the desktop
-// clip is the left monitor, the other clip the right), which is the monitor it
-// calls attention to unless the line says otherwise.
-export function loadNarration({ desktopPath, mobilePath, narrationFile } = {}) {
+// One timeline for the whole stage: each screen's narration file, merged by
+// time. Every screen's clip starts together, so their times share a clock. A
+// given narrationFile replaces the per-screen files (for previewing).
+// Each line is tagged with the name of the screen its step is on, which is
+// the screen it calls attention to unless the line says otherwise (its own
+// `focus` field wins — see scheduleNarration).
+export function loadNarration({ screens = [], narrationFile } = {}) {
   const sources = narrationFile
     ? [{ file: path.resolve(narrationFile) }]
-    : [
-        { clip: desktopPath, side: "left" },
-        { clip: mobilePath, side: "right" },
-      ]
-        .filter((source) => source.clip)
-        .map(({ clip, side }) => ({ file: narrationPathForClip(clip), side }));
+    : screens
+        .filter((screen) => screen.clip)
+        .map(({ name, clip }) => ({ file: narrationPathForClip(clip), side: name }));
   return sources
     .filter(({ file }) => fs.existsSync(file))
     .flatMap(({ file, side }) =>
@@ -135,13 +132,14 @@ function printTimeline(inputs) {
       .filter((name) => name.endsWith(".narration.json"))
       .map((name) => path.join(dir, name));
   });
-  const entries = files.flatMap((file) =>
-    JSON.parse(fs.readFileSync(file, "utf8")).map((entry) => ({
-      side: /-desktop\.narration\.json$/.test(file) ? "left" : "right",
+  const entries = files.flatMap((file) => {
+    const screenName = path.basename(file).replace(/\.narration\.json$/, "").split("-").at(-1);
+    return JSON.parse(fs.readFileSync(file, "utf8")).map((entry) => ({
+      side: screenName,
       ...entry,
-      source: path.basename(file).replace(/\.narration\.json$/, "").split("-").at(-1),
-    })),
-  );
+      source: screenName,
+    }));
+  });
   // How long the finished video runs, as compose.mjs works it out: the longest
   // clip beside the narration files plus its tail, so the last line's warning
   // knows how long it stays up.

@@ -1,9 +1,9 @@
 ---
 name: create-flow
 description: >-
-  Creates a new recording flow (a scripted video of the React.tv app with
-  cursor, zoom, on-screen narration and music) under `.recordings/flows/<name>/`,
-  or edits an existing one — scenarios, setup, record script, README, sign-in
+  Creates a new recording flow (a scripted video of a web app with cursor,
+  zoom, on-screen narration and music) under `.recordings/flows/<name>/`, or
+  edits an existing one — scenarios, setup, record script, README, sign-in
   session. Use when the user wants to make a new tutorial/demo/marketing video
   flow, change what a flow does, fix a flow whose UI targets broke, or invokes
   /create-flow. To just re-run an existing flow, use `record-flow`.
@@ -16,23 +16,25 @@ Tooling lives in `.recordings/tooling/` (shared, vendored). Read
 the canonical reference for prerequisites, scenario JSON, and output quality. This skill is the
 authoring workflow on top of it. Once a flow exists, recording it is `record-flow`'s job.
 
-## The north star
+## What every flow gets right
 
-**`embed-channel-in-obs` is the model.** Every flow should look and behave like its video, and its
-folder is the one to copy. What that means, each with the one file that holds its rules (this skill
-never restates them; when a run teaches something new, edit that file):
+Every flow should look and behave like its video. What that means, each with the one file that
+holds its rules (this skill never restates them; when a run teaches something new, edit that
+file):
 
 | The video has | Rules |
 |---|---|
 | A **1920x1080** desktop viewport (phone scenarios excepted), so every zoom focus is calibrated | [`zoom.md`](../../tooling/references/zoom.md) |
-| **Steady zoom**: one crop per screen area, no in-and-out pumping, a glide only between areas too far apart for one crop, the same fixed zoom for the Add content modal every time | [`zoom.md`](../../tooling/references/zoom.md) |
-| **Narration** under the devices: a yellow line per beat; an auto-numbered "Step N" header over the setup; a white "See it in action" section for the demonstration; a yellow payoff line at the end | [`narration.md`](../../tooling/references/narration.md) |
-| A **glow** on the monitor each line is about, moving between screens as the story does | [`narration.md`](../../tooling/references/narration.md#focus) |
+| **Steady zoom**: one crop per screen area, no in-and-out pumping, a glide only between areas too far apart for one crop | [`zoom.md`](../../tooling/references/zoom.md) |
+| **Narration** under the screens (multi-screen flows only): a yellow line per beat; an auto-numbered "Step N" header over the setup; a white "See it in action" section for the demonstration; a yellow payoff line at the end | [`narration.md`](../../tooling/references/narration.md) |
+| A **glow** on the screen each line is about, moving between screens as the story does | [`narration.md`](../../tooling/references/narration.md#focus) |
 | Quiet **background music**, added automatically | [tooling README](../../tooling/README.mdx#music) |
 | **Viewer-paced** steps: nothing dead, values nobody reads entered fast, waits only as long as the page needs | [`effects.md`](../../tooling/references/effects.md#pacing) |
-| Two sides that **stay in sync**, and clips of equal length | the flow's README ([`zoom.md`](../../tooling/references/zoom.md#procedure) step 5) |
+| Every screen **stays in sync**, and clips of equal length | the flow's README ([`zoom.md`](../../tooling/references/zoom.md#procedure) step 5) |
 
-The [definition of done](#9-verify-with-a-real-run) is one checklist over all of it.
+The [definition of done](#9-verify-with-a-real-run) is one checklist over all of it. Once this
+project has a flow you're happy with, treat its folder as the model to copy for the next one —
+this skill doesn't hard-code an example, since every project's first flow looks different.
 
 ## The folder contract
 
@@ -40,10 +42,10 @@ Every flow is `.recordings/flows/<name>/` (kebab-case, named for what the video 
 
 | File | Purpose |
 |---|---|
-| `<role>.scenario.json` | Start URL + every step. One per screen: `broadcaster`, `viewer`, or just `main` for single-screen. |
-| `setup.mjs` | Optional. Only for flow-specific state the shared reset (`.recordings/shared/reset-channel-state.mjs`) doesn't cover. Exports one async function. |
-| `record.mjs` | Always. Runs setup, records, composes if side-by-side. **This is the only thing `record-flow` runs.** |
-| `README.md` | Always. The flow's plan (zoom, narration, sync), what it needs, how to re-run. |
+| `<screen-name>.scenario.json` | Start URL + every step. One per screen (see [Pick the shape](#1-pick-the-shape)), or just `main.scenario.json` for a single raw recording. |
+| `setup.mjs` | Optional. Flow-specific state reset your project needs before recording (see [Reset app state](#6-reset-app-state)). Exports one async function. |
+| `record.mjs` | Always. Runs setup, records every screen, composites them if there's more than one (or one with a frame). **This is the only thing `record-flow` runs.** |
+| `README.md` | Always. The flow's plan (screens, zoom, narration, sync), what it needs, how to re-run. |
 | `.output/` | Generated videos, plus an `artifacts/` subfolder for the click/zoom/narration logs each run writes. Gitignored; the recorder creates it. |
 
 Sign-in sessions are **not** per flow — they live in `.recordings/auth/<account>.auth.json`
@@ -53,12 +55,37 @@ Sign-in sessions are **not** per flow — they live in `.recordings/auth/<accoun
 
 ### 1. Pick the shape
 
-- **Side-by-side** — the norm: "broadcaster changes something, here's what the viewer (or OBS)
-  sees". Two scenarios recorded in sync, then composited onto the stage: a monitor on the left and
-  a phone or a second monitor (`rightFrame: "window"`, for a desktop app) on the right. Only this
-  shape gets narration, the header and the glow.
-- **Single screen** — a plain walkthrough: one scenario, one recording. It gets zoom and music but
-  has no stage, so no narration. If the video needs to explain itself, make it side-by-side.
+Ask the user, don't assume — the right shape depends entirely on what the video needs to show:
+
+1. **How many screens does this video need to show at once?** One, or more than one (e.g. a
+   change on one device reflected on another).
+2. **For each screen, should it have a device frame, or be shown as-is?** Options: `desktop`
+   (monitor mockup), `mobile` (phone mockup), `mac` or `windows` (app window chrome), `chrome`
+   (browser window chrome), `custom` (bring your own — see below), or `none` (no frame at all).
+
+This gives three shapes in practice:
+
+- **One screen, `none`, recorded raw** — skip the presentation stage entirely: `record.mjs` calls
+  `recordWalkthrough()` directly and the output is exactly the scenario's own recording, no
+  header, no reserved space, no narration. The simplest option, and a reasonable default if the
+  user has no strong preference.
+- **One screen, any other frame (or `none` but the user still wants a title/narration)** — goes
+  through the presentation stage (`composePresentation`) with a single entry in `screens`. Gets a
+  title and optional wordmark; no narration glow target beyond that one screen, but narration
+  lines still work.
+- **Two or more screens** — always goes through the presentation stage. Every screen needs a
+  `name` (used for narration focus — see [narration.md](../../tooling/references/narration.md#focus)),
+  a `label`, and a `frame`. Only this shape gets the full narration treatment (header, glow moving
+  between screens).
+
+**`custom` frames:** this package ships no default look for `custom` — it's a bare wrapper with
+a marked slot for the video (`data-video-slot`) plus a `style.css` you (or this skill) write for
+that specific project. If the user wants a distinctive frame (their own app's chrome, an
+OBS-style window, anything not in the built-in list), write the `template.html` + `style.css` for
+it as part of authoring the flow, save it under the flow's own folder (e.g.
+`.recordings/flows/<name>/frames/<frame-name>/`), and reference it from `screens` as
+`{ "frame": "custom", "customFrame": "./frames/<frame-name>" }`. Run
+`node .recordings/tooling/presentation/compose.mjs --help` for the exact contract.
 
 ### 2. Prerequisites
 
@@ -66,7 +93,7 @@ Sign-in sessions are **not** per flow — they live in `.recordings/auth/<accoun
 node .recordings/tooling/record.mjs --check-prereqs
 ```
 
-The dev server must be running (`npm run dev`, `localhost:3000`).
+Your project's dev server must be running, at whatever URL the scenario's `start` points to.
 
 ### 3. Get a signed-in session, if needed
 
@@ -74,7 +101,7 @@ The dev server must be running (`npm run dev`, `localhost:3000`).
 [`tooling/references/auth.md`](../../tooling/references/auth.md)
 and save the `storageState` to `.recordings/auth/<account>.auth.json`. **Never commit it** — it
 can impersonate whoever signed in. If a suitable session already exists in `.recordings/auth/`,
-reuse it. Anonymous scenarios (e.g. a viewer) skip this step.
+reuse it. Anonymous scenarios skip this step.
 
 ### 4. Plan the video
 
@@ -83,11 +110,13 @@ later edits start from it:
 
 1. **The story.** What does the viewer end up able to do? List the setup steps, the result they
    produce, any demonstration that shows it working, and the payoff. This is the shape narration
-   follows ([the pattern](../../tooling/references/narration.md#the-pattern)).
+   follows ([the pattern](../../tooling/references/narration.md#the-pattern)) — only needed for a
+   multi-screen or staged flow.
 2. **The zoom plan.** One line per stretch: which steps, one focus, why. Measure the real page
    first ([`zoom.md`](../../tooling/references/zoom.md#procedure)).
-3. **The narration plan.** One row per line: its text, kind (setup, result, demonstration,
-   payoff), header, tone and monitor. Beats and stretches usually line up.
+3. **The narration plan** (multi-screen/staged flows only). One row per line: its text, kind
+   (setup, result, demonstration, payoff), header, tone and which screen it's about. Beats and
+   stretches usually line up.
 
 ### 5. Write the scenario(s)
 
@@ -98,77 +127,109 @@ Step and effects reference:
   it out even though it is the recorder's default; only phone scenarios (`"device": "phone"`) use
   another size.
 - **Locators:** prefer `role`/`text`/`label` over CSS selectors; they survive UI changes better.
-- **Captions off:** `"effects": { "captions": false }`. The on-page captions stay off; the text
-  viewers read is the presentation's narration.
-- **Zoom:** hold, focus and release each stretch as planned, and use the fixed focus wherever the
-  Add content modal appears ([`zoom.md`](../../tooling/references/zoom.md)).
+- **Captions off:** `"effects": { "captions": false }`. The on-page captions stay off; if the flow
+  is staged, the text viewers read is the presentation's narration instead.
+- **Zoom:** hold, focus and release each stretch as planned
+  ([`zoom.md`](../../tooling/references/zoom.md)). If your project has recurring UI (a settings
+  modal that's always centered, say), add its calibrated focus to
+  [zoom.md's fixed-foci table](../../tooling/references/zoom.md#fixed-foci) once you know it.
 - **Narration:** add `narration` (and `narrationHeader`, `narrationStyle`, `narrationFocus`) to the
   steps the plan says
-  ([`narration.md`](../../tooling/references/narration.md)). It must never change a step's own
-  timing: fix a narration warning in the text, not by adding waits.
+  ([`narration.md`](../../tooling/references/narration.md)). `narrationFocus` names a screen (see
+  its `name` in `screens`), or `"all"`/`"none"`. It must never change a step's own timing: fix a
+  narration warning in the text, not by adding waits.
 - **Pacing:** nothing dead, values nobody reads entered fast
   ([`effects.md`](../../tooling/references/effects.md#pacing)).
-- **Content videos:** when a flow needs a video to add or play, pick from
-  [`stock-videos.md`](../../stock-videos.md) and never use the same one twice in one recording.
 
-Copy the shape of a working scenario: `.recordings/flows/embed-channel-in-obs/` for a desktop side
-and a desktop-app side, `.recordings/flows/broadcaster-first-content/` for a signed-in desktop one
-and an anonymous phone one (`"device": "phone"`).
+Once this project has an earlier flow, copy the shape of its scenario(s) rather than starting
+from nothing.
 
 ### 6. Reset app state
 
-Every signed-in flow starts by calling the shared reset from its `record.mjs`:
+If recording this flow leaves your app in a different state than it started (content created, a
+setting changed, something scheduled), write a `setup.mjs` that resets it before recording:
 
 ```js
-import { resetChannelState } from "../../shared/reset-channel-state.mjs";
-
-await resetChannelState(); // empties Feed 1 and Feed 2 default queues
+export async function setup() {
+  // whatever your project needs reset before this flow records cleanly
+}
 ```
 
-It takes `{ feeds, channelSlug, account }` (defaults: `[1, 2]`, `content-creator-television`,
-`broadcaster`). Only add a flow-specific `setup.mjs` for state it doesn't cover, and if a second
-flow needs the same thing, extend the shared reset instead.
+Call it from `record.mjs` before recording starts. If more than one flow needs the same reset,
+factor it into a shared helper under `.recordings/shared/` and import it from each flow's
+`setup.mjs` — this package ships no reset logic of its own, since it's entirely specific to your
+app's data model.
 
-A flow that leaves state behind (a scheduled queue, a fallback, a slot assignment) must clean it up
-in a way that still works **on a different day**. Anything scheduled for a time goes live once that
-time passes, and the Queues tab names it differently by then (a queue for "Sep 22 noon" is listed
-as just "@ 12:00 PM" on Sep 22). Match on what stays the same, and delete leftovers *before*
-changing slots: a live queue makes the cam "actively playing", and every slot change then asks for
-confirmation.
+A flow that leaves state behind (something scheduled for a specific time, say) must clean up in a
+way that still works **on a different day** — match on what stays the same (an identifying name
+or slug), not on a time-derived label that reads differently once that time has passed.
 
 ### 7. Write `record.mjs`
 
-**Side-by-side:** copy the closest of `.recordings/flows/embed-channel-in-obs/record.mjs` (a desktop
-side and a desktop-app side, with `rightFrame: "window"`) and
-`.recordings/flows/broadcaster-first-content/record.mjs` (a desktop side and a phone), and adapt.
-Don't simplify away the structure: both sides must go through `prepareRecording()` first, then
-`captureRecording()` together behind a `createRecordingSyncBarrier`, because a signed-in session
-restore takes much longer than an anonymous page load and recording each side independently
-drifts by seconds once composited. Write-up:
-[`dual-screen-recording-poc.ai.mdx`](../../../docs/MARKETING/TUTORIAL_VIDEOS/dual-screen-recording-poc.ai.mdx#follow-up-wall-clock-sync-between-the-two-recordings).
-Give every side-by-side flow a `header` option on `composePresentation` — a short one-line title
-for what the video shows (e.g. `"Add Your First Piece of Content"`). It renders top-center under
-the React.tv branding, above the labels, always in title case (the stage enforces it; write it
-that way in `record.mjs` too); omit it and only the branding shows. Labels are the
-`labelLeft`/`labelRight` options ("Broadcaster", "OBS", "Viewer"): they name the monitors the
-narration's glow lights. Narration and music need nothing in `record.mjs`: `composePresentation`
-reads the narration files beside the clips and adds the music, so never pass `music: false`. Layout
-is plain CSS in
-[`tooling/presentation/stage.html`](../../tooling/presentation/stage.html) (rationale:
-[`dual-screen-recording-poc.ai.mdx`](../../../docs/MARKETING/TUTORIAL_VIDEOS/dual-screen-recording-poc.ai.mdx#follow-up-device-frame-presentation-layer)).
+**Staged (one screen with a frame, or multiple screens):**
+
+```js
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { prepareRecording, captureRecording, createRecordingSyncBarrier } from "../../tooling/record.mjs";
+import { composePresentation } from "../../tooling/presentation/compose.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const readScenario = (name) =>
+  JSON.parse(fs.readFileSync(path.join(__dirname, `${name}.scenario.json`), "utf8"));
+
+const screens = [
+  { name: "desktop", label: "Desktop", frame: "desktop", scenario: readScenario("desktop") },
+  { name: "mobile", label: "Mobile", frame: "mobile", scenario: readScenario("mobile") },
+  // add as many as the flow needs
+];
+
+// prepareRecording for everyone first, then captureRecording for everyone via
+// Promise.all, so every screencast starts within the same tick regardless of
+// each screen's own setup time (session restore vs. an anonymous page load).
+const prepared = await Promise.all(
+  screens.map((screen) =>
+    prepareRecording({
+      scenario: screen.scenario,
+      out: path.join(__dirname, ".output", `<name>-${screen.name}.mp4`),
+    }),
+  ),
+);
+// The barrier makes every screen wait for the others to finish their own
+// steps before any of them starts its tail padding, so they end together too.
+const sync = createRecordingSyncBarrier(prepared.length);
+const recorded = await Promise.all(prepared.map((p) => captureRecording(p, { sync })));
+
+const result = await composePresentation({
+  screens: screens.map((screen, i) => ({
+    name: screen.name,
+    label: screen.label,
+    frame: screen.frame,
+    clip: recorded[i].out,
+  })),
+  header: "Add Your First Piece Of Content", // short, title case; renders top-center
+  out: path.join(__dirname, ".output", "<name>-presentation.mp4"),
+});
+console.log("Done:", result.out);
+```
+
+Don't simplify away `createRecordingSyncBarrier`: a signed-in session restore takes much longer
+than an anonymous page load, and recording each screen independently drifts by seconds once
+composited — the barrier holds every screen's capture at the starting line until all are ready.
 
 To tune the header text or stage design without recording, preview it in a browser:
 
 ```bash
-node .recordings/tooling/presentation/compose.mjs --preview --header "<title>" \
-  [--desktop <flow>/.output/<name>-desktop.mp4 --mobile <flow>/.output/<name>-mobile.mp4]
+node .recordings/tooling/presentation/compose.mjs --preview --header "<title>" --screens screens.json
 ```
 
-Passing existing clips fills the device screens; edits to `stage.html` show on refresh. Add
-`--narration lines.json` to preview narration
+Passing a `screens.json` with real clip paths fills the screens; edits to `stage.html` show on
+refresh. Add `--narration lines.json` to preview narration
 ([`narration.md`](../../tooling/references/narration.md#procedure)).
 
-**Single screen:**
+**Raw (one screen, `none`, no stage):**
 
 ```js
 import fs from "node:fs";
@@ -191,7 +252,7 @@ const result = await recordWalkthrough({
 console.log("Done:", result.out);
 ```
 
-A single-screen video gets the music from `recordWalkthrough` as well. Never edit
+A raw recording gets the music from `recordWalkthrough` as well. Never edit
 `.recordings/tooling/record.mjs` for one flow's needs — it's shared.
 
 ### 8. Write the `README.md`
@@ -201,29 +262,34 @@ A single-screen video gets the music from `recordWalkthrough` as well. Never edi
 
 <One or two sentences: what the video shows.>
 
-- `<role>.scenario.json` — <what this side does>
+- `<screen-name>.scenario.json` — <what this screen does>   (one per screen)
 - `setup.mjs` — <what state it resets>   (omit if none)
 - `record.mjs` — <what it runs>
+
+## Screens   (staged flows only)
+
+<One row per screen: name, frame, label.>
 
 ## Zoom plan
 
 <One line per stretch: which steps, its focus, why. Rules live in `tooling/references/zoom.md`.>
 
-## Narration
+## Narration   (staged flows only)
 
-<One row per line: text, kind (setup / result / demonstration / payoff), header, tone, monitor.
-Rules live in `tooling/references/narration.md`.>
+<One row per line: text, kind (setup / result / demonstration / payoff), header, tone, which
+screen it's about. Rules live in `tooling/references/narration.md`.>
 
-## Sync   (side-by-side flows)
+## Sync   (multi-screen flows only)
 
-<Which `wait` steps line the two sides up, and what to expect in the click logs: e.g. "Add Source
-lands ~1.7s after the Copy click". Both clips should end within ~0.4s of each other.>
+<Which `wait` steps line the screens up, and what to expect in the click logs: e.g. "the mobile
+side's confirmation lands ~1.7s after the desktop click". All clips should end within ~0.4s of
+each other.>
 
 ## Needs
 
-- Dev server running (`npm run dev`, `localhost:3000`)
+- Dev server running at <url>
 - <auth session path, if any>
-- <required app state / account / channel>
+- <required app state / account>
 
 ## Re-run
 
@@ -238,31 +304,32 @@ steps change.
 
 ### 9. Verify with a real run
 
-Run `node .recordings/flows/<name>/record.mjs`. If `setup.mjs`'s seeding step times out on "Add to
-Queue", retry once; it has been transient. Then check the whole video against this list. It is the
-definition of done, and it points to where each item's details live:
+Run `node .recordings/flows/<name>/record.mjs`. Then check the whole video against this list. It
+is the definition of done, and it points to where each item's details live:
 
 1. **Viewport.** Desktop scenarios say 1920x1080.
-2. **Zoom.** The checklist in [`zoom.md`](../../tooling/references/zoom.md#procedure), for both
-   clips, and a frame from inside each stretch showing one steady crop.
-3. **Narration.** `node .recordings/tooling/presentation/narration.mjs .recordings/flows/<name>/.output`
-   reads as the story, the steps count up with no gaps, each line lights the right monitor, and
+2. **Zoom.** The checklist in [`zoom.md`](../../tooling/references/zoom.md#procedure), for every
+   clip, and a frame from inside each stretch showing one steady crop.
+3. **Narration** (staged flows only).
+   `node .recordings/tooling/presentation/narration.mjs .recordings/flows/<name>/.output`
+   reads as the story, the steps count up with no gaps, each line lights the right screen, and
    there are no warnings. Then frames from the presentation confirm the header sits above the line,
    yellow and white are where the plan says, and every line fits on one line
    ([`narration.md`](../../tooling/references/narration.md#procedure)).
 4. **The flow itself is unchanged by the text.** No wait was added or slowed to fit a line.
-5. **Sync.** The beats land where the README's Sync section says and the clips are within ~0.4s of
-   each other. Re-check it after any change to a step's timing.
+5. **Sync** (multi-screen flows only). The beats land where the README's Sync section says and the
+   clips are within ~0.4s of each other. Re-check it after any change to a step's timing.
 6. **Music.** The finished video has one AAC track at about -26 LUFS, and the intermediate clips
    are silent:
 
    ```bash
-   V=.recordings/flows/<name>/.output/<name>-presentation.mp4
+   V=.recordings/flows/<name>/.output/<name>-presentation.mp4   # or <name>.mp4 for a raw flow
    ffprobe -v error -show_entries stream=codec_name -of csv=p=0 $V   # h264, aac
    ffmpeg -hide_banner -nostats -i $V -vn -af ebur128 -f null - 2>&1 | grep -A6 Summary | grep "I:"
    ```
 
-7. **README.** The zoom plan, narration plan, sync notes and Needs match what the scenarios now do.
+7. **README.** The screens list, zoom plan, narration plan, sync notes and Needs match what the
+   scenarios now do.
 
 Judge the video, not the logs: the times in the click and narration logs run a few hundred
 milliseconds ahead of what the video shows. Fix what is wrong in the scenario and re-run until every
@@ -276,7 +343,7 @@ Same files, same rules. After changing a scenario, do a real run (step 9) — a 
 right in JSON often isn't. If a flow's needs changed (new account, new required state), update its
 README **Needs** in the same change.
 
-Every flow in `.recordings/flows/` meets the north star, so keep it that way: when you change a
-scenario, update the README plans that describe it and run the whole step 9 list again, not just the
-part you touched (a change to one step's timing shifts the narration schedule, the zoom regions and
-the sync).
+Every flow in `.recordings/flows/` meets the [north star](#what-every-flow-gets-right), so keep it
+that way: when you change a scenario, update the README plans that describe it and run the whole
+step 9 list again, not just the part you touched (a change to one step's timing shifts the
+narration schedule, the zoom regions and the sync).

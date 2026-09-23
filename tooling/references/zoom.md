@@ -65,29 +65,27 @@ the rules are built from.
    at full frame (a CAM tile, about 15% of the viewport or more in both directions) takes
    `"zoom": false`; zooming in on it only adds a zoom-in/out for nothing. The next small target
    (the sidebar's Add content button) then gets its own zoom.
-8. **Some stretches are fixed.** Where the [table below](#fixed-foci) has a focus for a piece of UI,
-   use it exactly as written every time, instead of computing a new one. The Add content modal is
-   always `0.5, 0.2`, held from the Paste a link click through Add to Queue or Schedule Content,
-   whatever flow it appears in.
+8. **Some stretches are fixed.** Once you've calibrated a focus for a piece of UI that appears in
+   more than one flow (a settings modal, a dialog that always centers itself), record it in the
+   [table below](#fixed-foci) and use it exactly as written every time, instead of recomputing a
+   new one per flow.
 
 ```json
-{ "action": "click", "text": "Paste a link to a video or livestream",
+{ "action": "click", "text": "Open settings",
   "holdZoomAfter": true, "zoomFocus": { "cx": 0.5, "cy": 0.2 } },
-{ "action": "type", "selector": "[placeholder=\"Media or Playlist URL\"]", "text": "…" },
-{ "action": "click", "role": "button", "name": "Add to Queue", "releaseZoomHold": true }
+{ "action": "type", "selector": "[placeholder=\"Name\"]", "text": "…" },
+{ "action": "click", "role": "button", "name": "Save", "releaseZoomHold": true }
 ```
 
 ### Fixed foci
 
 Calibrated at 1920x1080, in normalized coordinates. Recheck one if that page's layout changes.
+Empty until your project has flows to calibrate from — fill it in as you go, one row per piece of
+recurring UI:
 
 | Layout | Focus | Frames |
 |---|---|---|
-| Add content modal (Paste a link → type → Add to Queue / Schedule Content) | `0.5, 0.2` | the whole modal with the sidebar and destination panel at its edges |
-| Dashboard sidebar + page content (nav item → the page it loads → an item and its menu) | `0.33, 0.33` | the top-left corner of the page |
-| Broadcast Center: Add content sidebar button | follows the click | left edge, mid-height |
-| OBS mock: Add Source button and its menu | `0.33, 0.67` | bottom-left corner |
-| OBS mock: centered dialogs (name, URL, width, height, OK) | `0.5, 0.5` | the whole dialog |
+| *(e.g. a settings modal that always centers itself)* | `0.5, 0.5` | *(the whole modal)* |
 
 A stretch inside a centered dialog or modal frames the dialog itself when it fits the crop, rather
 than the center of the targets in it.
@@ -107,7 +105,7 @@ than the center of the targets in it.
    const browser = await chromium.launch();
    const ctx = await browser.newContext({
      viewport: { width: 1920, height: 1080 },
-     storageState: ".recordings/auth/broadcaster.auth.json", // omit when anonymous
+     storageState: ".recordings/auth/<account>.auth.json", // omit when anonymous
    });
    const page = await ctx.newPage();
    await page.goto(START_URL);
@@ -122,7 +120,7 @@ than the center of the targets in it.
 3. **Write.** First step of each stretch gets the focus and hold, last gets the release (rule 4).
 4. **Run and verify.**
 
-   Run it for each clip of a side-by-side flow (`<name>-desktop` and the right-hand clip):
+   Run it for every screen's clip in a multi-screen flow (e.g. `<name>-desktop`, `<name>-mobile`):
 
    ```bash
    cd .recordings/flows/<name>/.output && node -e '
@@ -151,22 +149,24 @@ than the center of the targets in it.
    hundred ms behind the times in `.clicks.jsonl`, so read the video, not the log, when judging it.
 
 5. **Recheck the sync waits.** Holding a zoom removes the zoom-out and zoom-in sleeps, so steps
-   finish sooner. In a side-by-side flow that shifts every later beat: re-read both `.clicks.jsonl`
-   files and adjust the waits documented in the flow's README until the beats and clip lengths line
+   finish sooner. In a multi-screen flow that shifts every later beat: re-read every screen's
+   `.clicks.jsonl` files and adjust the waits documented in the flow's README until the beats and
+   clip lengths line
    up again.
 
 ## Worked example
 
-`embed-channel-in-obs` started with the zoom planned per click and needed hand-fixing twice:
+A first pass with the zoom planned per click typically needs hand-fixing at least once or twice —
+these are real lessons from doing that:
 
 | Before | After |
 |---|---|
-| Embed Details click zoomed on the sidebar item, then glided to the URL, held there for the copy | one stretch at `0.33, 0.33` from the click through Copy: the sidebar item, URL and context menu all fit |
-| OBS: name step zoom, small glide, URL-field zoom held through OK | one stretch at `0.5, 0.5` from the name step through the final OK: the whole dialog |
-| Select CAM 2 zoomed in on a tile that is already a fifth of the screen, then glided to Add content | `"zoom": false` on the tile (rule 7); Add content gets its own zoom |
-| The glide into the modal started before the Add content click was visible | the renderer starts every glide 400ms after the click (`ZOOM_GLIDE_HOLD_MS`), not at it |
-| A 5s pause between clicking the URL field and the URL appearing | the recorder looked ahead for the Add to Queue button, which only exists once the URL is typed; it no longer looks ahead inside a held stretch |
-| Add content modal at 1440x810 cropped the modal and sidebar | the scenario moved to 1920x1080, where the fixed `0.5, 0.2` frames it (rule 8) |
+| A sidebar-item click zoomed there, then glided to a copy field, held there for the copy | one stretch from the click through the copy: the sidebar item, field and context menu all fit |
+| A settings dialog: a name-field zoom, small glide, then a separate zoom on the confirm button | one stretch from the name field through the confirm click: the whole dialog |
+| A list-tile click zoomed in on a tile already a fifth of the screen, then glided to a modal | `"zoom": false` on the tile (rule 7); the modal gets its own zoom |
+| The glide into a modal started before the click that opened it was visible | the renderer starts every glide 400ms after the click (`ZOOM_GLIDE_HOLD_MS`), not at it |
+| A 5s pause between typing a value and the page reacting to it | the recorder looked ahead for a button that only appears once the value is valid; it no longer looks ahead inside a held stretch |
+| A modal at 1440x810 cropped itself and the sidebar together | the scenario moved to 1920x1080, where a fixed `0.5, 0.2` frames it (rule 8) |
 
 Both merges were rule 2: the union of targets fit in one crop, so there was nothing to glide
 between. The one glide left, from the Add Source menu (bottom left) into its dialog, is rule 3: the

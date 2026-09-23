@@ -23,8 +23,12 @@ export const DEFAULT_TAIL_PADDING_MS = 5000;
 // "step" (the default) is a line the viewer follows; "aside" is supporting
 // context. See references/narration.md.
 const NARRATION_STYLES = ["step", "aside"];
-// Which monitor a line calls attention to; see references/narration.md.
-const NARRATION_FOCUSES = ["left", "right", "both", "none"];
+// Which screen(s) a line calls attention to: a screen's own `name` (from the
+// flow's screens config), "all", or "none". Not a closed enum — screen names
+// are defined per flow, so only the two reserved values are checked here; an
+// unrecognized name surfaces as a warning from the compositor, not here. See
+// references/narration.md.
+const NARRATION_RESERVED_FOCUSES = ["all", "none"];
 export const SIGN_IN_TIMEOUT_MS = 180_000;
 
 // How this recording gets its session. One name rather than a pair of flags
@@ -1775,8 +1779,13 @@ export function validateScenario(scenario, options = {}) {
       problems.push(`steps[${index}].narrationHeader must be a string ("step" numbers it automatically)`);
     }
     const narrationFocus = steps[index].narrationFocus;
-    if (narrationFocus !== undefined && !NARRATION_FOCUSES.includes(narrationFocus)) {
-      problems.push(`steps[${index}].narrationFocus must be one of ${NARRATION_FOCUSES.join(", ")}`);
+    if (
+      narrationFocus !== undefined &&
+      (typeof narrationFocus !== "string" || narrationFocus.length === 0)
+    ) {
+      problems.push(
+        `steps[${index}].narrationFocus must be a screen name, or one of ${NARRATION_RESERVED_FOCUSES.join(", ")}`,
+      );
     }
     for (const key of ["narrationStyle", "narrationHeader", "narrationFocus"]) {
       if (steps[index][key] !== undefined && typeof steps[index].narration !== "string") {
