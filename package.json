@@ -14,7 +14,7 @@
     "url": "https://github.com/ReactTV/AppReel/issues"
   },
   "bin": {
-    "appreel": "./bin/install.mjs"
+    "appreel": "bin/install.mjs"
   },
   "files": [
     "bin",
