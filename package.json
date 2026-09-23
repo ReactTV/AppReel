@@ -20,7 +20,6 @@
     "bin",
     "tooling",
     "skills",
-    "examples",
     "NOTICE.md"
   ],
   "engines": {
