@@ -8,3 +8,6 @@ npm-debug.log*
 # Local test-install scratch dirs
 /.scratch/
 /tmp-install-test/
+
+# Generated example recordings
+/examples/*/.output/

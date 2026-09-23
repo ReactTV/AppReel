@@ -1,0 +1,10 @@
+{
+  "url": "http://127.0.0.1:0/",
+  "viewport": { "width": 1920, "height": 1080 },
+  "effects": { "captions": false },
+  "steps": [
+    { "action": "click", "selector": "#message" },
+    { "action": "type", "selector": "#message", "text": "Hello from AppReel!" },
+    { "action": "wait", "ms": 1500 }
+  ]
+}

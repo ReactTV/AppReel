@@ -1,0 +1,10 @@
+{
+  "url": "http://127.0.0.1:0/",
+  "device": "phone",
+  "effects": { "captions": false, "cursor": false },
+  "steps": [
+    { "action": "wait", "ms": 2000 },
+    { "action": "wait", "ms": 2000, "narration": "…and watch it appear here", "narrationFocus": "mobile" },
+    { "action": "wait", "ms": 1000, "narration": "" }
+  ]
+}

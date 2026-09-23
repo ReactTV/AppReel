@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>AppReel demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #0b0c0d;
+        color: #f2f1ee;
+        font-family: -apple-system, "Segoe UI", sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 28px;
+        padding: 24px;
+      }
+      p {
+        color: rgba(255, 255, 255, 0.55);
+        font-size: 20px;
+        margin: 0;
+      }
+      input {
+        width: min(520px, 90vw);
+        font-size: 26px;
+        padding: 16px 20px;
+        border-radius: 10px;
+        border: 1px solid #333;
+        background: #1c1d20;
+        color: #fff;
+      }
+      input:focus {
+        outline: 2px solid #f4d35e;
+      }
+      #mirror {
+        font-size: 34px;
+        font-weight: 600;
+        min-height: 44px;
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <p>Type a message</p>
+    <input id="message" placeholder="Type something…" autofocus />
+    <div id="mirror"></div>
+    <script>
+      const input = document.getElementById("message");
+      const mirror = document.getElementById("mirror");
+
+      input.addEventListener("input", () => {
+        fetch("/state", { method: "POST", body: JSON.stringify({ value: input.value }) });
+      });
+
+      // Both screens poll the same tiny server, so typing on one and seeing
+      // it appear on the other works across two separate Playwright browser
+      // contexts (see server.mjs for why that's necessary).
+      async function poll() {
+        try {
+          const res = await fetch("/state");
+          const { value } = await res.json();
+          mirror.textContent = value;
+        } catch {
+          // server not up yet on the very first tick — next poll will catch it
+        }
+        setTimeout(poll, 200);
+      }
+      poll();
+    </script>
+  </body>
+</html>
