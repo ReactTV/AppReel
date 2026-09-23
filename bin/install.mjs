@@ -5,6 +5,17 @@
 // Also scaffolds the supporting folders a project fills in itself (music,
 // auth, shared setup helpers, custom frame wrappers) so they're discoverable
 // from the start instead of only documented in prose.
+//
+// Hard rule: this script never writes anywhere outside .appreel/ in the
+// target project. It doesn't touch AGENTS.md, .claude/, README.md, or
+// anything else already there — wiring the installed skills up for a
+// specific coding agent (symlinking into .claude/skills/, adding a line to
+// AGENTS.md, ...) is a manual step documented in this package's own
+// README, on purpose: those are files the target project owns, this
+// installer doesn't know what agent (if any) is in use, and getting a
+// merge into someone else's AGENTS.md wrong is worse than not attempting
+// it. Every path below is built from TARGET_ROOT so this stays true as the
+// file grows — never construct a target path from `cwd` directly.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +23,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.join(__dirname, "..");
 const cwd = process.cwd();
+const TARGET_ROOT = path.join(cwd, ".appreel");
 
 function usage() {
   console.log(`Usage: appreel <command>
@@ -23,20 +35,27 @@ Commands:
 `);
 }
 
+// Resolves a path relative to TARGET_ROOT and refuses to return anything
+// outside it — the enforcement behind the "never writes outside .appreel/"
+// rule above, not just a naming convention. A relPath containing ".." (even
+// by future-edit accident) throws instead of silently escaping.
+function underTarget(relPath) {
+  const resolved = path.join(TARGET_ROOT, relPath);
+  const relativeToTarget = path.relative(TARGET_ROOT, resolved);
+  if (relativeToTarget.startsWith("..") || path.isAbsolute(relativeToTarget)) {
+    throw new Error(`refusing to write outside .appreel/: ${relPath}`);
+  }
+  return resolved;
+}
+
 // tooling/ and skills/ are package-owned — always overwritten on reinstall so
 // updates actually take. Never edit them for one flow's needs (the skills say
 // so too); if you need to, you're supposed to fork the package instead.
 function copyPackageOwned() {
   const copies = [
-    { from: path.join(packageRoot, "tooling"), to: path.join(cwd, ".appreel", "tooling") },
-    {
-      from: path.join(packageRoot, "skills", "create-flow"),
-      to: path.join(cwd, ".appreel", "skills", "create-flow"),
-    },
-    {
-      from: path.join(packageRoot, "skills", "record-flow"),
-      to: path.join(cwd, ".appreel", "skills", "record-flow"),
-    },
+    { from: path.join(packageRoot, "tooling"), to: underTarget("tooling") },
+    { from: path.join(packageRoot, "skills", "create-flow"), to: underTarget("skills/create-flow") },
+    { from: path.join(packageRoot, "skills", "record-flow"), to: underTarget("skills/record-flow") },
   ];
   for (const { from, to } of copies) {
     fs.mkdirSync(path.dirname(to), { recursive: true });
@@ -49,19 +68,20 @@ function copyPackageOwned() {
 // project-specific helpers, flows) — scaffolded once, never overwritten on a
 // later install, so re-running this never clobbers anything a user added.
 function writeIfMissing(relPath, content) {
-  const filePath = path.join(cwd, relPath);
+  const filePath = underTarget(relPath);
+  const displayPath = path.relative(cwd, filePath);
   if (fs.existsSync(filePath)) {
-    console.log(`Skipped  ${relPath} (already exists)`);
+    console.log(`Skipped  ${displayPath} (already exists)`);
     return;
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, content);
-  console.log(`Created  ${relPath}`);
+  console.log(`Created  ${displayPath}`);
 }
 
 function scaffoldProjectOwned() {
   writeIfMissing(
-    ".appreel/README.md",
+    "README.md",
     `# AppReel
 
 Everything AppReel needs to script and produce walkthrough videos of this app.
@@ -82,7 +102,7 @@ Read [\`tooling/README.mdx\`](./tooling/README.mdx) for how the recorder itself 
   );
 
   writeIfMissing(
-    ".appreel/music/README.md",
+    "music/README.md",
     `# Music
 
 Drop exactly one audio file here (mp3/m4a/aac/wav/flac/ogg) — every video this tooling produces
@@ -101,7 +121,7 @@ Until a track is added, videos render silently — nothing else breaks.
   );
 
   writeIfMissing(
-    ".appreel/auth/README.md",
+    "auth/README.md",
     `# Auth
 
 Saved Playwright \`storageState\` sessions a flow signs in with, one file per account:
@@ -112,10 +132,10 @@ Generate one by following \`../tooling/references/auth.md\` — the \`create-flo
 part of scripting a flow that needs to be signed in.
 `,
   );
-  writeIfMissing(".appreel/auth/.gitignore", "*\n!.gitignore\n!README.md\n");
+  writeIfMissing("auth/.gitignore", "*\n!.gitignore\n!README.md\n");
 
   writeIfMissing(
-    ".appreel/shared/README.md",
+    "shared/README.md",
     `# Shared
 
 Cross-flow helpers your project needs — most commonly a shared app-state reset that more than one
@@ -133,7 +153,7 @@ Import it from a flow's \`setup.mjs\` once more than one flow needs the same res
   );
 
   writeIfMissing(
-    ".appreel/frames/README.md",
+    "frames/README.md",
     `# Frames
 
 Custom device-frame wrappers (\`frame: "custom"\` in a flow's \`screens\` config) that are reused
@@ -148,7 +168,7 @@ same look.
   );
 
   writeIfMissing(
-    ".appreel/flows/README.md",
+    "flows/README.md",
     `# Flows
 
 One folder per video, created by the \`create-flow\` skill: \`.appreel/flows/<name>/\`. Each
@@ -157,7 +177,7 @@ its plan. Generated videos land in a gitignored \`.output/\` inside each flow's 
 \`.gitignore\` here) — everything else in a flow's folder is tracked in git.
 `,
   );
-  writeIfMissing(".appreel/flows/.gitignore", "*/.output/\n");
+  writeIfMissing("flows/.gitignore", "*/.output/\n");
 }
 
 function install() {
@@ -170,7 +190,14 @@ AppReel installed into .appreel/
 Next steps:
   1. Check prerequisites: node .appreel/tooling/record.mjs --check-prereqs
   2. Add a background track: .appreel/music/ (optional — see its README)
-  3. Use the create-flow / record-flow skills to script your first walkthrough
+  3. Wire up create-flow / record-flow for your coding agent (pick one):
+       Claude Code:  ln -s ../../.appreel/skills/create-flow .claude/skills/create-flow
+                      ln -s ../../.appreel/skills/record-flow .claude/skills/record-flow
+       Any other agent: point it at .appreel/skills/create-flow/SKILL.md and
+                      .appreel/skills/record-flow/SKILL.md — plain markdown, no
+                      special format required. Adding a line to your AGENTS.md
+                      is the most portable way to make that stick.
+     See the README for more on this.
 `);
 }
 
