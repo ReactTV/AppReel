@@ -86,3 +86,9 @@ itself. See [LICENSE](./LICENSE).
 The core recorder (`tooling/record.mjs` and friends) is vendored from
 [`akunzai/agent-skills`](https://github.com/akunzai/agent-skills) under MIT — see
 [NOTICE.md](./NOTICE.md).
+
+## Support
+
+AppReel is free and always will be. If it saved you time, [buy me a
+coffee](https://buymeacoffee.com/ashesofowls) — entirely optional, never required for anything
+here.
