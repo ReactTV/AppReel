@@ -54,7 +54,7 @@ function printUsage(stream) {
 Drive a Playwright walkthrough with a pointer, click echo, and auto-zoom.
 Captured frames are assembled into the output video with ffmpeg (lossless,
 yuv444p), which is required regardless of output container or auto-zoom.
-An mp4 gets the house track from .recordings/music/ unless --no-music.
+An mp4 gets the house track from .appreel/music/ unless --no-music.
 `);
 }
 

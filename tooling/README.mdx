@@ -17,25 +17,25 @@ from a third-party skill — see [`NOTICE.md`](./NOTICE.md) for provenance/licen
 Check with:
 
 ```bash
-node .recordings/tooling/record.mjs --check-prereqs
+node .appreel/tooling/record.mjs --check-prereqs
 ```
 
 ## Where output goes
 
-Each video is a **flow** — a folder at `.recordings/flows/<name>/` holding its scenario
+Each video is a **flow** — a folder at `.appreel/flows/<name>/` holding its scenario
 files, an optional `setup.mjs`, a `record.mjs`, and a `README.md`. Those are tracked in git.
 Generated video files go in that flow's `.output/`, which is gitignored since they're large
 binaries; the recorder creates it. The `create-flow` skill authors a flow and `record-flow`
-re-runs one. Saved sign-in sessions live in `.recordings/auth/`, shared
+re-runs one. Saved sign-in sessions live in `.appreel/auth/`, shared
 across flows and also gitignored. This is separate from `.scratchpad/`, which is for throwaway
-POC work — `.recordings/` is for videos you're actually keeping around.
+POC work — `.appreel/` is for videos you're actually keeping around.
 
 ## 1. Save a signed-in session (once)
 
 `record.mjs` never accepts credentials directly — a scenario file should stay safe to commit.
 Generate a Playwright `storageState` file instead: write a one-off script following the shape in
 [`references/auth.md`](./references/auth.md), and save the output to
-`.recordings/auth/<account>.auth.json` (gitignored) — it can impersonate whatever account
+`.appreel/auth/<account>.auth.json` (gitignored) — it can impersonate whatever account
 signed in.
 
 ## 2. Write a scenario
@@ -67,7 +67,7 @@ header and glow on the stage around the recording.
 ## 3. Record
 
 ```bash
-node .recordings/tooling/record.mjs \
+node .appreel/tooling/record.mjs \
   --scenario path/to/scenario.json \
   --out path/to/output.webm \
   --storage-state path/to/auth.json
@@ -78,7 +78,7 @@ Writes `output.webm`, `output.clicks.jsonl`, and `output.zooms.json`.
 ## 4. Apply auto-zoom
 
 ```bash
-node .recordings/tooling/render-auto-zoom.mjs \
+node .appreel/tooling/render-auto-zoom.mjs \
   --video path/to/output.webm \
   --zooms path/to/output.zooms.json \
   --out path/to/output-zoomed.mp4
@@ -95,7 +95,7 @@ scenario (one desktop, one `"device": "phone"`, however many you need — see
 in sync), then wrap them in device frames and composite them together:
 
 ```bash
-node .recordings/tooling/presentation/compose.mjs \
+node .appreel/tooling/presentation/compose.mjs \
   --screens screens.json \
   --out path/to/presentation.mp4 \
   --header "What this video shows"
@@ -172,7 +172,7 @@ probed and the recording fails if anything above doesn't hold (`compose.mjs` als
 is 1920x1080), so an mp4 that exists meets the format. To check a file by hand:
 
 ```bash
-node .recordings/tooling/delivery-format.mjs --check video.mp4 --size 1920x1080
+node .appreel/tooling/delivery-format.mjs --check video.mp4 --size 1920x1080
 ```
 
 The recorder used to write lossless 4:4:4 at 60 fps instead. That format doesn't decode in most
@@ -199,7 +199,7 @@ away only at the final encode, once.
 - **Opting out.** `--no-music` on `record.mjs`, or `music: false` in the options to
   `recordWalkthrough`. `music: "path/to/other.mp3"` uses another track for one video.
 - **An existing video** gets the track, replacing any audio it has, with
-  `node .recordings/tooling/music.mjs video.mp4`.
+  `node .appreel/tooling/music.mjs video.mp4`.
 - **Checking it.** The finished video has an `aac` stream (`ffprobe -v error -show_entries
   stream=codec_name -of csv=p=0 video.mp4`) and measures about -26 LUFS
   (`ffmpeg -hide_banner -nostats -i video.mp4 -vn -af ebur128 -f null -`, the `I:` line under

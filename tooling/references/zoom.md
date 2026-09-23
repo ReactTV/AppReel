@@ -105,7 +105,7 @@ than the center of the targets in it.
    const browser = await chromium.launch();
    const ctx = await browser.newContext({
      viewport: { width: 1920, height: 1080 },
-     storageState: ".recordings/auth/<account>.auth.json", // omit when anonymous
+     storageState: ".appreel/auth/<account>.auth.json", // omit when anonymous
    });
    const page = await ctx.newPage();
    await page.goto(START_URL);
@@ -123,7 +123,7 @@ than the center of the targets in it.
    Run it for every screen's clip in a multi-screen flow (e.g. `<name>-desktop`, `<name>-mobile`):
 
    ```bash
-   cd .recordings/flows/<name>/.output && node -e '
+   cd .appreel/flows/<name>/.output && node -e '
    const z = JSON.parse(require("fs").readFileSync("artifacts/<name>-desktop.zooms.json", "utf8")).suggestions;
    z.forEach((s, i) => console.log(i, s.start, s.end, s.focus.cx.toFixed(2), s.focus.cy.toFixed(2),
      i ? "gap " + (s.start - z[i - 1].end) : ""));'

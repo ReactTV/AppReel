@@ -224,7 +224,7 @@ never compete with the screens. Keep it this subtle.
 2. **Preview the look** without recording, with sample lines in a JSON file:
 
    ```bash
-   node .recordings/tooling/presentation/compose.mjs --preview --narration lines.json \
+   node .appreel/tooling/presentation/compose.mjs --preview --narration lines.json \
      --screens screens.json
    ```
 
@@ -232,7 +232,7 @@ never compete with the screens. Keep it this subtle.
    how late the scheduler pushed it, which screen it lights, its header and any warnings:
 
    ```bash
-   node .recordings/tooling/presentation/narration.mjs .recordings/flows/<name>/.output
+   node .appreel/tooling/presentation/narration.mjs .appreel/flows/<name>/.output
    ```
 
    - the lines read as the story, with every screen interleaved correctly
@@ -254,7 +254,7 @@ never compete with the screens. Keep it this subtle.
    the same `screens` config as the flow's `record.mjs`:
 
    ```bash
-   cd .recordings/flows/<name>/.output && node ../../../tooling/presentation/compose.mjs \
+   cd .appreel/flows/<name>/.output && node ../../../tooling/presentation/compose.mjs \
      --screens screens.json --out <name>-presentation.mp4 --header "<title>"
    ```
 

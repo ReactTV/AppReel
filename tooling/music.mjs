@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { verifyDeliveryFile } from "./delivery-format.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// The one folder the track lives in: .recordings/music/.
+// The one folder the track lives in: .appreel/music/.
 export const MUSIC_DIR = path.join(__dirname, "..", "music");
 const AUDIO_EXTENSIONS = [".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg"];
 
@@ -27,7 +27,7 @@ export const MUSIC_LOUDNESS_LUFS = -26;
 export const MUSIC_FADE_IN_S = 1;
 export const MUSIC_FADE_OUT_S = 2;
 
-// The track every video uses: the one audio file in .recordings/music/. Null
+// The track every video uses: the one audio file in .appreel/music/. Null
 // when there is none; an error when there are several, since nothing says which.
 export function findMusicTrack() {
   if (!fs.existsSync(MUSIC_DIR)) {

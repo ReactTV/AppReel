@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Wraps any number of already-recorded clips (e.g. a desktop scenario and a
-// mobile scenario recorded via .recordings/tooling/record.mjs) in device-frame
+// mobile scenario recorded via .appreel/tooling/record.mjs) in device-frame
 // mockups side by side and re-records the result — see stage.html for the
 // actual layout/styling. Reuses the same lossless recorder as everything
-// else in .recordings/tooling/, so it gets the same output format.
+// else in .appreel/tooling/, so it gets the same output format.
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";

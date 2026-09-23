@@ -2,7 +2,7 @@
 name: create-flow
 description: >-
   Creates a new recording flow (a scripted video of a web app with cursor,
-  zoom, on-screen narration and music) under `.recordings/flows/<name>/`, or
+  zoom, on-screen narration and music) under `.appreel/flows/<name>/`, or
   edits an existing one — scenarios, setup, record script, README, sign-in
   session. Use when the user wants to make a new tutorial/demo/marketing video
   flow, change what a flow does, fix a flow whose UI targets broke, or invokes
@@ -11,7 +11,7 @@ description: >-
 
 # Create flow
 
-Tooling lives in `.recordings/tooling/` (shared, vendored). Read
+Tooling lives in `.appreel/tooling/` (shared, vendored). Read
 [`tooling/README.mdx`](../../tooling/README.mdx) first — it's
 the canonical reference for prerequisites, scenario JSON, and output quality. This skill is the
 authoring workflow on top of it. Once a flow exists, recording it is `record-flow`'s job.
@@ -38,7 +38,7 @@ this skill doesn't hard-code an example, since every project's first flow looks 
 
 ## The folder contract
 
-Every flow is `.recordings/flows/<name>/` (kebab-case, named for what the video shows):
+Every flow is `.appreel/flows/<name>/` (kebab-case, named for what the video shows):
 
 | File | Purpose |
 |---|---|
@@ -48,7 +48,7 @@ Every flow is `.recordings/flows/<name>/` (kebab-case, named for what the video 
 | `README.md` | Always. The flow's plan (screens, zoom, narration, sync), what it needs, how to re-run. |
 | `.output/` | Generated videos, plus an `artifacts/` subfolder for the click/zoom/narration logs each run writes. Gitignored; the recorder creates it. |
 
-Sign-in sessions are **not** per flow — they live in `.recordings/auth/<account>.auth.json`
+Sign-in sessions are **not** per flow — they live in `.appreel/auth/<account>.auth.json`
 (gitignored) and are shared.
 
 ## Creating a flow
@@ -83,14 +83,14 @@ a marked slot for the video (`data-video-slot`) plus a `style.css` you (or this 
 that specific project. If the user wants a distinctive frame (their own app's chrome, an
 OBS-style window, anything not in the built-in list), write the `template.html` + `style.css` for
 it as part of authoring the flow, save it under the flow's own folder (e.g.
-`.recordings/flows/<name>/frames/<frame-name>/`), and reference it from `screens` as
+`.appreel/flows/<name>/frames/<frame-name>/`), and reference it from `screens` as
 `{ "frame": "custom", "customFrame": "./frames/<frame-name>" }`. Run
-`node .recordings/tooling/presentation/compose.mjs --help` for the exact contract.
+`node .appreel/tooling/presentation/compose.mjs --help` for the exact contract.
 
 ### 2. Prerequisites
 
 ```bash
-node .recordings/tooling/record.mjs --check-prereqs
+node .appreel/tooling/record.mjs --check-prereqs
 ```
 
 Your project's dev server must be running, at whatever URL the scenario's `start` points to.
@@ -99,8 +99,8 @@ Your project's dev server must be running, at whatever URL the scenario's `start
 
 `record.mjs` never takes credentials. Write a one-off Playwright script following
 [`tooling/references/auth.md`](../../tooling/references/auth.md)
-and save the `storageState` to `.recordings/auth/<account>.auth.json`. **Never commit it** — it
-can impersonate whoever signed in. If a suitable session already exists in `.recordings/auth/`,
+and save the `storageState` to `.appreel/auth/<account>.auth.json`. **Never commit it** — it
+can impersonate whoever signed in. If a suitable session already exists in `.appreel/auth/`,
 reuse it. Anonymous scenarios skip this step.
 
 ### 4. Plan the video
@@ -156,7 +156,7 @@ export async function setup() {
 ```
 
 Call it from `record.mjs` before recording starts. If more than one flow needs the same reset,
-factor it into a shared helper under `.recordings/shared/` and import it from each flow's
+factor it into a shared helper under `.appreel/shared/` and import it from each flow's
 `setup.mjs` — this package ships no reset logic of its own, since it's entirely specific to your
 app's data model.
 
@@ -222,7 +222,7 @@ composited — the barrier holds every screen's capture at the starting line unt
 To tune the header text or stage design without recording, preview it in a browser:
 
 ```bash
-node .recordings/tooling/presentation/compose.mjs --preview --header "<title>" --screens screens.json
+node .appreel/tooling/presentation/compose.mjs --preview --header "<title>" --screens screens.json
 ```
 
 Passing a `screens.json` with real clip paths fills the screens; edits to `stage.html` show on
@@ -253,7 +253,7 @@ console.log("Done:", result.out);
 ```
 
 A raw recording gets the music from `recordWalkthrough` as well. Never edit
-`.recordings/tooling/record.mjs` for one flow's needs — it's shared.
+`.appreel/tooling/record.mjs` for one flow's needs — it's shared.
 
 ### 8. Write the `README.md`
 
@@ -293,7 +293,7 @@ each other.>
 
 ## Re-run
 
-    node .recordings/flows/<name>/record.mjs
+    node .appreel/flows/<name>/record.mjs
 
 <Which output file is the finished video.>
 ```
@@ -304,14 +304,14 @@ steps change.
 
 ### 9. Verify with a real run
 
-Run `node .recordings/flows/<name>/record.mjs`. Then check the whole video against this list. It
+Run `node .appreel/flows/<name>/record.mjs`. Then check the whole video against this list. It
 is the definition of done, and it points to where each item's details live:
 
 1. **Viewport.** Desktop scenarios say 1920x1080.
 2. **Zoom.** The checklist in [`zoom.md`](../../tooling/references/zoom.md#procedure), for every
    clip, and a frame from inside each stretch showing one steady crop.
 3. **Narration** (staged flows only).
-   `node .recordings/tooling/presentation/narration.mjs .recordings/flows/<name>/.output`
+   `node .appreel/tooling/presentation/narration.mjs .appreel/flows/<name>/.output`
    reads as the story, the steps count up with no gaps, each line lights the right screen, and
    there are no warnings. Then frames from the presentation confirm the header sits above the line,
    yellow and white are where the plan says, and every line fits on one line
@@ -323,7 +323,7 @@ is the definition of done, and it points to where each item's details live:
    are silent:
 
    ```bash
-   V=.recordings/flows/<name>/.output/<name>-presentation.mp4   # or <name>.mp4 for a raw flow
+   V=.appreel/flows/<name>/.output/<name>-presentation.mp4   # or <name>.mp4 for a raw flow
    ffprobe -v error -show_entries stream=codec_name -of csv=p=0 $V   # h264, aac
    ffmpeg -hide_banner -nostats -i $V -vn -af ebur128 -f null - 2>&1 | grep -A6 Summary | grep "I:"
    ```
@@ -343,7 +343,7 @@ Same files, same rules. After changing a scenario, do a real run (step 9) — a 
 right in JSON often isn't. If a flow's needs changed (new account, new required state), update its
 README **Needs** in the same change.
 
-Every flow in `.recordings/flows/` meets the [north star](#what-every-flow-gets-right), so keep it
+Every flow in `.appreel/flows/` meets the [north star](#what-every-flow-gets-right), so keep it
 that way: when you change a scenario, update the README plans that describe it and run the whole
 step 9 list again, not just the part you touched (a change to one step's timing shifts the
 narration schedule, the zoom regions and the sync).

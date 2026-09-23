@@ -17,7 +17,7 @@ Built for and battle-tested on [react.tv](https://react.tv).
 npx @reacttv/appreel install
 ```
 
-Copies the recorder tooling and the `create-flow` / `record-flow` skills into `.recordings/` in
+Copies the recorder tooling and the `create-flow` / `record-flow` skills into `.appreel/` in
 your project.
 
 ## Prerequisites
@@ -30,7 +30,7 @@ your project.
 Check with:
 
 ```bash
-node .recordings/tooling/record.mjs --check-prereqs
+node .appreel/tooling/record.mjs --check-prereqs
 ```
 
 ## License

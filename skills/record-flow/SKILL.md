@@ -2,7 +2,7 @@
 name: record-flow
 description: >-
   Re-records an existing recording flow (a scripted, cursor-and-zoom video of
-  a web app under `.recordings/flows/<name>/`) and hands back the finished
+  a web app under `.appreel/flows/<name>/`) and hands back the finished
   video. Use when the user asks to record, re-record, regenerate, or refresh
   a flow's video, or invokes /record-flow. To make a new flow or change what
   an existing one does, use `create-flow` instead.
@@ -10,14 +10,14 @@ description: >-
 
 # Record flow
 
-A **flow** is a folder at `.recordings/flows/<name>/` holding everything needed to reproduce one
+A **flow** is a folder at `.appreel/flows/<name>/` holding everything needed to reproduce one
 video: scenario JSON, an optional `setup.mjs`, a `record.mjs`, a `README.md`, and a gitignored
 `.output/`. Every flow records the same way, so this skill needs no per-flow knowledge beyond
 that flow's README.
 
 ## 1. Pick the flow
 
-If the user named one, use it. Otherwise list `.recordings/flows/` and ask which.
+If the user named one, use it. Otherwise list `.appreel/flows/` and ask which.
 
 ## 2. Check what it needs
 
@@ -25,13 +25,13 @@ Read the flow's `README.md` — its **Needs** section says what must be true bef
 (dev server, which auth session, required app state). Confirm each:
 
 - The dev server it names is answering (usually already running).
-- Any listed `.recordings/auth/<account>.auth.json` exists. If it's missing or the run later
+- Any listed `.appreel/auth/<account>.auth.json` exists. If it's missing or the run later
   fails to sign in, the session needs regenerating — that's a `create-flow` task
-  (`.recordings/tooling/references/auth.md`).
+  (`.appreel/tooling/references/auth.md`).
 - Recorder prerequisites (Playwright's Chromium, ffmpeg):
 
   ```bash
-  node .recordings/tooling/record.mjs --check-prereqs
+  node .appreel/tooling/record.mjs --check-prereqs
   ```
 
 App state the flow's `setup.mjs` resets is handled by `record.mjs`. Anything else the README
@@ -40,7 +40,7 @@ lists is on the user — ask rather than guess.
 ## 3. Record
 
 ```bash
-node .recordings/flows/<name>/record.mjs
+node .appreel/flows/<name>/record.mjs
 ```
 
 Output filenames are fixed, so **re-running overwrites that flow's previous videos** in `.output/`.
@@ -48,7 +48,7 @@ If the user wants to keep the last take, copy it out first.
 
 ## 4. Hand back
 
-Give the user the path(s) under `.recordings/flows/<name>/.output/`. The finished video is
+Give the user the path(s) under `.appreel/flows/<name>/.output/`. The finished video is
 `<name>-presentation.mp4` for a staged (one or more screens through the presentation stage) flow,
 or `<name>.mp4` for a raw single-screen one. Both are already in the postable format (H.264,
 30 fps, plays everywhere; a staged presentation is 1920x1080) and carry the house music, so no
@@ -74,7 +74,7 @@ is a change to the flow's narration text).
   ways that look unrelated. Look at the actual app state before editing the scenario, then fix
   the flow's cleanup (`setup.mjs`) so it recognizes what the last run left, whatever day it is.
 - **Sign-in fails or lands signed out** — the saved session expired. Regenerate it (`create-flow`).
-- **Anything in `.recordings/tooling/`** — that's the shared vendored recorder. Report what
+- **Anything in `.appreel/tooling/`** — that's the shared vendored recorder. Report what
   broke; don't patch it as part of recording a video.
 
 Never delete a flow folder or an auth file after recording — they're the reproducible source.
