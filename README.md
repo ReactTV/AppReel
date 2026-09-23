@@ -9,6 +9,23 @@ recording, no re-recording by hand every time the UI changes.
 
 Built for and battle-tested on [react.tv](https://react.tv).
 
+## See it in action
+
+Both videos below are checked into this repo (`examples/`) and made entirely by AppReel
+recording its own trivial demo page — nothing hand-edited afterward.
+
+**Single screen** — the simplest shape, no device frame, no narration:
+
+<video src="https://github.com/ReactTV/AppReel/raw/main/examples/single-screen-demo/.output/single-screen-demo.mp4" controls width="600"></video>
+
+**Two screens, composited and synced** — type on one screen, watch it appear live on the other,
+with narration and the focus glow:
+
+<video src="https://github.com/ReactTV/AppReel/raw/main/examples/dual-screen-demo/.output/dual-screen-demo-presentation.mp4" controls width="600"></video>
+
+See [`examples/`](./examples/) for the flows that produced these — a good starting point to copy
+from for your own.
+
 ## Install
 
 ```bash
