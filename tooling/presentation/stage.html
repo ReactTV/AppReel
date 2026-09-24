@@ -346,6 +346,13 @@
         padding: 0 14px;
         background: linear-gradient(180deg, #3a3b3f 0%, #2a2b2f 100%);
       }
+      /* A real macOS title bar is ~28pt around 12pt traffic lights; the shared
+         36px read as too tall next to them. */
+      .frame-mac .titlebar {
+        height: 28px;
+        gap: 8px;
+        padding: 0 10px;
+      }
       .frame-mac .dot {
         width: 12px;
         height: 12px;
