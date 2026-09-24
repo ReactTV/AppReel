@@ -79,6 +79,11 @@
       .wordmark:empty {
         display: none;
       }
+      /* The project's brand.html (.appreel/brand/), in place of the wordmark.
+         Unstyled here on purpose: its own style.css decides the look. */
+      .brand:empty {
+        display: none;
+      }
       .title {
         color: rgba(255, 255, 255, 0.85);
         font-size: 34px;
@@ -507,6 +512,7 @@
     </h1>
     <div class="canvas">
       <div class="header">
+        <div class="brand" id="brand"></div>
         <div class="wordmark" id="wordmark"></div>
         <div class="title" id="title"></div>
       </div>
@@ -522,6 +528,7 @@
       // is reusable across recordings rather than one-off per set of clips:
       //   ?header=<text>       (this recording's title, shown top-center)
       //   &wordmark=<text>     (optional; blank by default, no brand mark shown)
+      //   &brand=html|html+css (optional; load /brand/brand.html [+ style.css])
       //   &narration=<url>     (optional; scheduled lines: {start, text, style, header, focus})
       // /screens.json: [{ name, label, frame, enterAtMs, clip, template?, style? }, ...]
       // frame is one of: desktop | mobile | mac | windows | chrome | custom | none.
@@ -782,6 +789,38 @@
         return built;
       }
 
+      // The project's brand: brand.html in the header's brand slot, replacing
+      // the wordmark, plus its style.css. Its relative src/href point into
+      // /brand/, where the folder is served. Everything (styles, fonts,
+      // images) is loaded before playback starts, so no frame shows it
+      // half-drawn.
+      async function loadBrand() {
+        const brand = params.get("brand");
+        if (!brand) return;
+        const loads = [];
+        if (brand === "html+css") {
+          const link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = "/brand/style.css";
+          loads.push(new Promise((resolve) => (link.onload = link.onerror = resolve)));
+          document.head.appendChild(link);
+        }
+        const slot = document.getElementById("brand");
+        slot.innerHTML = await (await fetch("/brand/brand.html")).text();
+        for (const el of slot.querySelectorAll("[src], [href]")) {
+          for (const attr of ["src", "href"]) {
+            const value = el.getAttribute(attr);
+            if (value && !/^([a-z]+:|\/|#)/i.test(value)) {
+              el.setAttribute(attr, `/brand/${value}`);
+            }
+          }
+        }
+        document.getElementById("wordmark").textContent = "";
+        loads.push(...[...slot.querySelectorAll("img")].map((img) => img.decode().catch(() => {})));
+        await Promise.all(loads);
+        await document.fonts.ready;
+      }
+
       async function playAll(videos) {
         const ready = (v) =>
           v.readyState >= 3
@@ -901,7 +940,7 @@
       );
 
       async function main() {
-        const built = await buildStage();
+        const [built] = await Promise.all([buildStage(), loadBrand()]);
         const videos = built.map(({ video }) => video);
         await playAll(videos);
         const clockVideo = videos[0];

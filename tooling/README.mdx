@@ -120,8 +120,14 @@ shared clock. Until then it is hidden and the other screens sit centered without
 they slide aside and it fades in beside them. The row is sized for every screen from the start, so
 nothing changes size when it enters. At least one screen must be on stage from the start.
 
-`--header` is a one-line title shown top-center (optional); `--wordmark` shows a small brand
-mark above it (also optional — neither is shown unless you pass it). To tune the header or
+`--header` is a one-line title shown top-center (optional). Above it goes your **brand**, as
+HTML: put a `brand.html` fragment (and optionally a `style.css`, plus any images or fonts it uses)
+in `.appreel/brand/`, and every video shows it. The CSS can also place things elsewhere on the
+stage, like a logo in a corner; scope it under `.brand`. A flow opts out with `brand: false` in
+its `composePresentation()` call (`--no-brand` on the CLI) or uses another folder with
+`brand: "path"` (`--brand DIR`). `install` scaffolds the folder with a README and an example; on an
+install from before 0.2.0, just create `.appreel/brand/` yourself. For a plain-text mark instead,
+`--wordmark` shows one in the same spot (a `brand.html` replaces it). To tune the header or
 layout without recording, run the same command with `--preview` in place of `--out`: it serves
 the stage and prints a URL to open in a browser (clips are optional there and fill the screens
 if given). Without `--header`, the preview shows a sample title so you can judge the layout.

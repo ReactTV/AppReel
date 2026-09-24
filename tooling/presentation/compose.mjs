@@ -27,15 +27,29 @@ const MIME = {
   ".css": "text/css",
   ".mp4": "video/mp4",
   ".webm": "video/webm",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
 };
+// The project's own brand (.appreel/brand/ once installed, beside tooling/),
+// picked up automatically when it holds a brand.html — like music/.
+const DEFAULT_BRAND_DIR = path.join(__dirname, "..", "..", "brand");
 // "custom" needs a customFrame directory (template.html + style.css) this
 // package never ships — bring your own. "none" is fullscreen, no wrapper.
 const FRAME_TYPES = ["desktop", "mobile", "mac", "windows", "chrome", "custom", "none"];
 
 function printUsage(stream) {
   stream.write(`Usage: compose.mjs --screens FILE --out FILE [--header TEXT] [--wordmark TEXT]
-                  [--narration FILE]
+                  [--brand DIR | --no-brand] [--narration FILE]
        compose.mjs --preview --screens FILE [--narration FILE] [--header TEXT] [--wordmark TEXT]
+                  [--brand DIR | --no-brand]
 
 Wraps any number of recorded clips in device frames, side by side, and
 records the composited result. Clips should already exist (e.g. from
@@ -63,8 +77,16 @@ fades in. Use it for a screen that has nothing to show yet, like a viewer
 whose page only exists once the other screen has created it. At least one
 screen must be on stage from the start.
 
---wordmark TEXT shows a small brand wordmark above the title (e.g. your app's
-name). Omit it and none is shown — this is optional, not required.
+Brand: .appreel/brand/ holds the project's own brand, in HTML. When it has a
+brand.html, every video shows that fragment above the title, styled by an
+optional style.css beside it (which can also place things elsewhere on the
+stage, like a logo in a corner). Other files there (images, fonts) are served
+alongside, so relative src/href and CSS url() work. --brand DIR uses another
+folder for one video; --no-brand leaves it off. See .appreel/brand/README.md.
+
+--wordmark TEXT is the plain-text alternative: a small wordmark above the
+title (e.g. your app's name). A brand.html replaces it. Omit both and no
+brand mark is shown.
 
 Narration (the line of text under the screens) is read from the
 <clip>.narration.json that record.mjs writes to each clip's artifacts/
@@ -86,6 +108,7 @@ function parseArgs(argv) {
     out: null,
     header: null,
     wordmark: null,
+    brand: undefined,
     narration: null,
     preview: false,
   };
@@ -95,6 +118,8 @@ function parseArgs(argv) {
     else if (arg === "--out") args.out = argv[++i];
     else if (arg === "--header") args.header = argv[++i];
     else if (arg === "--wordmark") args.wordmark = argv[++i];
+    else if (arg === "--brand") args.brand = argv[++i];
+    else if (arg === "--no-brand") args.brand = false;
     else if (arg === "--narration") args.narration = argv[++i];
     else if (arg === "--preview") args.preview = true;
     else if (arg === "--help" || arg === "-h") args.help = true;
@@ -141,6 +166,19 @@ function resolveScreens(screensOption) {
   return resolved;
 }
 
+// false leaves the brand off; a path uses that folder (and must hold a
+// brand.html); unset falls back to the project's .appreel/brand/, which is
+// used only if someone has put a brand.html there.
+function resolveBrand(brandOption) {
+  if (brandOption === false) return null;
+  const dir = path.resolve(brandOption ?? DEFAULT_BRAND_DIR);
+  if (!fs.existsSync(path.join(dir, "brand.html"))) {
+    if (brandOption) throw new Error(`brand folder ${dir} has no brand.html`);
+    return null;
+  }
+  return { dir, hasStyle: fs.existsSync(path.join(dir, "style.css")) };
+}
+
 function serveFile(res, filePath) {
   if (!fs.existsSync(filePath)) {
     res.writeHead(404);
@@ -175,7 +213,7 @@ function serveVideo(req, res, filePath) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-function serveStage({ screens = [], narration = [] }) {
+function serveStage({ screens = [], narration = [], brand = null }) {
   const screenByName = new Map(screens.map((screen) => [screen.name, screen]));
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -224,6 +262,13 @@ function serveStage({ screens = [], narration = [] }) {
         if (screen?.customFrame) return serveFile(res, path.join(screen.customFrame, frameMatch[2]));
       }
 
+      // Anything in the brand folder, so its own relative links resolve.
+      if (brand && url.pathname.startsWith("/brand/")) {
+        const filePath = path.join(brand.dir, decodeURIComponent(url.pathname.slice("/brand/".length)));
+        const relative = path.relative(brand.dir, filePath);
+        if (!relative.startsWith("..") && !path.isAbsolute(relative)) return serveFile(res, filePath);
+      }
+
       res.writeHead(404);
       res.end();
     });
@@ -234,13 +279,14 @@ function serveStage({ screens = [], narration = [] }) {
 // Screen data (name/label/frame/clip URLs) goes to the page via /screens.json,
 // fetched client-side — an N-length structured array doesn't belong in a
 // query string. Only the handful of page-wide scalars go here.
-function stageQuery({ header, wordmark, hasNarration }) {
+function stageQuery({ header, wordmark, brand, hasNarration }) {
   const query = new URLSearchParams({
     narrationIn: String(NARRATION_IN_MS),
     narrationOut: String(NARRATION_OUT_MS),
   });
   if (typeof header === "string") query.set("header", header);
   if (typeof wordmark === "string") query.set("wordmark", wordmark);
+  if (brand) query.set("brand", brand.hasStyle ? "html+css" : "html");
   if (hasNarration) query.set("narration", "/narration.json");
   return query;
 }
@@ -251,9 +297,10 @@ async function previewStage(options) {
     loadNarration({ screens, narrationFile: options.narration }),
   );
   warnings.forEach((warning) => process.stderr.write(`narration: ${warning}\n`));
-  const server = await serveStage({ screens, narration: lines });
+  const brand = resolveBrand(options.brand);
+  const server = await serveStage({ screens, narration: lines, brand });
   const port = server.address().port;
-  const query = stageQuery({ ...options, hasNarration: lines.length > 0 });
+  const query = stageQuery({ ...options, brand, hasNarration: lines.length > 0 });
   query.set("fit", "1");
   process.stdout.write(`Preview: http://127.0.0.1:${port}/stage.html?${query}\n`);
   process.stdout.write("Serving until Ctrl+C — edit stage.html and refresh.\n");
@@ -271,12 +318,14 @@ export async function composePresentation(options) {
     { endMs: waitMs },
   );
   warnings.forEach((warning) => process.stderr.write(`narration: ${warning}\n`));
-  const server = await serveStage({ screens, narration: lines });
+  const brand = resolveBrand(options.brand);
+  const server = await serveStage({ screens, narration: lines, brand });
   const port = server.address().port;
   // Always pass a header (empty if none) so a recording never falls back to
   // the stage's sample title, which is only for previewing.
   const query = stageQuery({
     ...options,
+    brand,
     header: options.header ?? "",
     wordmark: options.wordmark ?? "",
     hasNarration: lines.length > 0,

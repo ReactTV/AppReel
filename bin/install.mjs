@@ -39,13 +39,13 @@ function usage() {
 Commands:
   install    First-time setup: copy tooling/skills into ./.appreel/ and
              scaffold the folders your project adds its own content to
-             (music, auth, shared helpers, custom frames, flows)
+             (music, brand, auth, shared helpers, custom frames, flows)
   update     Refresh tooling/skills to match the installed npm package —
              does not touch flows, music, auth, or anything else you own
   status     Is .appreel/ installed, is it up to date, are prerequisites
              (ffmpeg, Playwright) satisfied
   uninstall  Remove tooling/ and skills/ only — never touches flows/,
-             music/, auth/, shared/, or frames/
+             music/, brand/, auth/, shared/, or frames/
   help       This message
   version    Print the installed appreel version
 `);
@@ -127,6 +127,7 @@ Everything AppReel needs to script and produce walkthrough videos of this app.
 | \`skills/\` | The \`create-flow\` / \`record-flow\` agent skills |
 | \`flows/\` | One folder per video — the thing you actually maintain |
 | \`music/\` | The one background track every video gets |
+| \`brand/\` | Your brand mark over every video, in HTML + CSS |
 | \`auth/\` | Saved sign-in sessions (gitignored) |
 | \`shared/\` | Cross-flow setup/reset helpers, if your project needs them |
 | \`frames/\` | Custom device-frame wrappers shared by more than one flow |
@@ -162,6 +163,42 @@ Note the track's source and license here once you've picked one:
 - License:
 
 Until a track is added, videos render silently — nothing else breaks.
+`,
+  );
+
+  writeIfMissing(
+    "brand/README.md",
+    `# Brand
+
+Your brand mark on every video's stage, written as plain HTML + CSS so it can look exactly like
+your product. Nothing ships here by default, and until you add a \`brand.html\` videos show no brand
+mark (or just the plain-text \`wordmark\` a flow passes, if any).
+
+| File | What it does |
+| --- | --- |
+| \`brand.html\` | An HTML fragment shown top-center, above the video's title. Inline SVG works |
+| \`style.css\` | Optional. Styles for it, and for anything else you place on the stage, like a logo in a corner |
+| anything else | Images, fonts, … served alongside, so relative \`src\`/\`href\` and CSS \`url()\` just work |
+
+Scope your CSS under \`.brand\` (the element your fragment is placed in) so it can't restyle the
+rest of the stage by accident. The stage is laid out on an 1800x950 canvas scaled to 1920x1080;
+the header area above the screens is 140px tall, so keep the fragment short. The fragment sits in
+a full-width strip across the top of the stage, so a corner logo can be \`position: absolute\`
+against it, e.g. \`top: 6px; right: 26px\`.
+
+Example, a two-weight wordmark:
+
+    <!-- brand.html -->
+    <div class="mark"><b>ACME</b><span>.APP</span></div>
+
+    /* style.css */
+    .brand .mark { font-size: 18px; letter-spacing: 0.32em; color: #f2f1ee; }
+    .brand .mark b { font-weight: 700; }
+    .brand .mark span { font-weight: 300; color: #b9b7bd; }
+
+Every video picks this folder up on its own. A flow can leave it off with \`brand: false\` in its
+\`composePresentation()\` call, or use another folder with \`brand: "path/to/folder"\`. Preview it
+without recording: \`node ../tooling/presentation/compose.mjs --preview --screens <screens.json>\`.
 `,
   );
 

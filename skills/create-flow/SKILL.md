@@ -71,8 +71,8 @@ This gives three shapes in practice:
   user has no strong preference.
 - **One screen, any other frame (or `none` but the user still wants a title/narration)** — goes
   through the presentation stage (`composePresentation`) with a single entry in `screens`. Gets a
-  title and optional wordmark; no narration glow target beyond that one screen, but narration
-  lines still work.
+  title and the project's brand (`.appreel/brand/`, or a plain `wordmark`); no narration glow
+  target beyond that one screen, but narration lines still work.
 - **Two or more screens** — always goes through the presentation stage. Every screen needs a
   `name` (used for narration focus — see [narration.md](../../tooling/references/narration.md#focus)),
   a `label`, and a `frame`. Only this shape gets the full narration treatment (header, glow moving
