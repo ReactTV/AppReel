@@ -699,7 +699,7 @@
           addressbar.appendChild(lock);
           const url = document.createElement("div");
           url.className = "url";
-          url.textContent = screen.label || "";
+          url.textContent = screen.url || screen.label || "";
           addressbar.appendChild(url);
           win.appendChild(addressbar);
           win.appendChild(screenDiv());
@@ -731,24 +731,38 @@
           column.appendChild(wrap);
         }
 
-        return { column, video, ready, frame: screen.frame, enterAtMs: screen.enterAtMs ?? 0 };
+        return {
+          column,
+          video,
+          ready,
+          frame: screen.frame,
+          enterAtMs: screen.enterAtMs ?? 0,
+          exitAtMs: screen.exitAtMs ?? Infinity,
+        };
       }
+
+      const isOnStageAt = (b, ms) => b.enterAtMs <= ms && ms < b.exitAtMs;
+      const widthOf = (b) => NATURAL_WIDTH[b.frame] ?? 840;
+      const rowWidth = (items) =>
+        items.reduce((sum, b) => sum + widthOf(b), 0) + Math.max(0, items.length - 1) * ROW_GAP;
+      // The widest the row ever gets: checked at every moment a screen enters
+      // or leaves, so screens never on stage together don't shrink each other.
+      const widestRow = (built) => {
+        const moments = [0, ...built.flatMap((b) => [b.enterAtMs, b.exitAtMs])].filter(Number.isFinite);
+        return Math.max(...moments.map((ms) => rowWidth(built.filter((b) => isOnStageAt(b, ms)))));
+      };
 
       const ROW_GAP = 80;
       const ENTER_MS = 700;
 
-      // Screens with an enterAtMs join the stage partway through. The row is
-      // laid out (and zoomed) for every screen from the start, so nothing
-      // changes size when one enters; until then it is hidden and the others
-      // are shifted to sit centered without it. Transforms only, in the row's
-      // own unzoomed units, so nothing reflows and no glow is clipped.
+      // Screens with an enterAtMs/exitAtMs are on stage for only part of the
+      // video. Every screen stays laid out in the row the whole time, so
+      // nothing reflows; one that is off stage is hidden, and the ones on
+      // stage are shifted to sit centered without it. Transforms only, in the
+      // row's own unzoomed units, so no glow is clipped.
       function placeColumns(built, ms, { animate }) {
-        const widthOf = (b) => NATURAL_WIDTH[b.frame] ?? 840;
         const leftEdges = (items) => {
-          const total =
-            items.reduce((sum, b) => sum + widthOf(b), 0) +
-            Math.max(0, items.length - 1) * ROW_GAP;
-          let x = -total / 2;
+          let x = -rowWidth(items) / 2;
           return new Map(
             items.map((b) => {
               const left = x;
@@ -758,16 +772,29 @@
           );
         };
         const finalLeft = leftEdges(built);
-        const stageLeft = leftEdges(built.filter((b) => b.enterAtMs <= ms));
+        const stageLeft = leftEdges(built.filter((b) => isOnStageAt(b, ms)));
+        // Staggered so a screen never shows over one still moving: an
+        // entering screen fades in once the others have mostly made room, and
+        // the others close up once a leaving screen has mostly faded.
+        const isAnyLeaving = built.some((b) => b.isOnStage && !stageLeft.has(b));
+        const ease = "cubic-bezier(0.22, 1, 0.36, 1)";
+        const fadeMs = ENTER_MS * 0.6;
+        const staggerMs = ENTER_MS * 0.4;
         for (const b of built) {
           const isOnStage = stageLeft.has(b);
-          // An entering screen fades in from a short distance to its right.
+          const isEntering = isOnStage && b.isOnStage === false;
+          const isLeaving = !isOnStage && b.isOnStage === true;
+          const moveDelay = isAnyLeaving && !isLeaving ? staggerMs : 0;
+          const fadeDelay = isEntering ? staggerMs : 0;
+          // An off-stage screen sits a short distance to its right, so it
+          // fades in from there and fades out toward there.
           const shift = isOnStage ? stageLeft.get(b) - finalLeft.get(b) : 24;
           b.column.style.transition = animate
-            ? `transform ${ENTER_MS}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${ENTER_MS}ms ease`
+            ? `transform ${ENTER_MS}ms ${ease} ${moveDelay}ms, opacity ${fadeMs}ms ease ${fadeDelay}ms`
             : "none";
           b.column.style.transform = `translateX(${shift}px)`;
           b.column.style.opacity = isOnStage ? "1" : "0";
+          b.isOnStage = isOnStage;
         }
       }
 
@@ -778,12 +805,9 @@
         built.forEach(({ column }) => stageRow.appendChild(column));
         await Promise.all(built.map(({ ready }) => ready));
 
-        // Scale the whole row so any number of screens fits the 1800px
-        // canvas, never growing past natural size.
-        const totalWidth =
-          screens.reduce((sum, screen) => sum + (NATURAL_WIDTH[screen.frame] ?? 840), 0) +
-          Math.max(0, screens.length - 1) * ROW_GAP;
-        stageRow.style.zoom = Math.min(1, 1800 / totalWidth);
+        // Scale the whole row so the most screens ever on stage at once fit
+        // the 1800px canvas, never growing past natural size.
+        stageRow.style.zoom = Math.min(1, 1800 / widestRow(built));
         placeColumns(built, 0, { animate: false });
 
         return built;
@@ -945,18 +969,24 @@
         await playAll(videos);
         const clockVideo = videos[0];
 
-        // Brings each late screen on stage once the clips reach its enterAtMs.
-        let onStageCount = built.filter((b) => b.enterAtMs <= 0).length;
-        const watchEntrances = () => {
+        // Moves screens on and off stage as the clips reach their
+        // enterAtMs/exitAtMs, until the last of those has passed.
+        const lastChangeMs = Math.max(
+          0,
+          ...built.flatMap((b) => [b.enterAtMs, b.exitAtMs]).filter(Number.isFinite),
+        );
+        const onStageKey = (ms) => built.map((b) => (isOnStageAt(b, ms) ? 1 : 0)).join("");
+        let shownKey = onStageKey(0);
+        const watchStage = () => {
           const ms = clockVideo.currentTime * 1000;
-          const count = built.filter((b) => b.enterAtMs <= ms).length;
-          if (count !== onStageCount) {
-            onStageCount = count;
+          const key = onStageKey(ms);
+          if (key !== shownKey) {
+            shownKey = key;
             placeColumns(built, ms, { animate: true });
           }
-          if (count < built.length) requestAnimationFrame(watchEntrances);
+          if (ms <= lastChangeMs) requestAnimationFrame(watchStage);
         };
-        watchEntrances();
+        watchStage();
 
         const columnsByName = new Map(
           built.map(({ column }) => [column.dataset.screen, column]),

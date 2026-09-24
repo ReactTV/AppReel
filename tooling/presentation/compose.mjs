@@ -68,14 +68,20 @@ frame is one of: ${FRAME_TYPES.join(" | ")}.
 "custom" also takes customFrame: a directory with template.html (containing
 one element marked data-video-slot) and style.css. This package ships no
 default look for it — bring your own, or ask your coding agent to write one.
-"none" is fullscreen, no device wrapper at all.
+"none" is fullscreen, no device wrapper at all. "chrome" also takes url: the
+text in its address bar (the tab shows the label); without it, both show the
+label.
 
 A screen can also take enterAtMs: a time on the clips' shared clock (they all
 start together) when it joins the stage. Until then it is hidden and the
 other screens sit centered without it; at that time they slide aside and it
 fades in. Use it for a screen that has nothing to show yet, like a viewer
-whose page only exists once the other screen has created it. At least one
-screen must be on stage from the start.
+whose page only exists once the other screen has created it. exitAtMs is the
+reverse: the screen fades out and the others close up, e.g. a browser window
+that is only on stage while something is copied from it. The row is sized
+for the most screens on stage at any one time, so screens that are never on
+stage together don't shrink each other. At least one screen must be on stage
+from the start.
 
 Brand: .appreel/brand/ holds the project's own brand, in HTML. When it has a
 brand.html, every video shows that fragment above the title, styled by an
@@ -151,13 +157,19 @@ function resolveScreens(screensOption) {
     if (!Number.isFinite(enterAtMs) || enterAtMs < 0) {
       throw new Error(`screen "${screen.name}".enterAtMs must be a number of milliseconds, 0 or more`);
     }
+    const exitAtMs = screen.exitAtMs ?? null;
+    if (exitAtMs !== null && (!Number.isFinite(exitAtMs) || exitAtMs <= enterAtMs)) {
+      throw new Error(`screen "${screen.name}".exitAtMs must be a number of milliseconds after its enterAtMs`);
+    }
     return {
       name: screen.name,
       label: screen.label ?? screen.name,
       frame: screen.frame,
+      url: screen.url ?? null,
       clip: screen.clip ? path.resolve(screen.clip) : null,
       customFrame: screen.customFrame ? path.resolve(screen.customFrame) : null,
       enterAtMs,
+      exitAtMs,
     };
   });
   if (resolved.every((screen) => screen.enterAtMs > 0)) {
@@ -228,7 +240,9 @@ function serveStage({ screens = [], narration = [], brand = null }) {
           name: screen.name,
           label: screen.label,
           frame: screen.frame,
+          url: screen.url,
           enterAtMs: screen.enterAtMs,
+          exitAtMs: screen.exitAtMs,
           clip: screen.clip ? `/screen/${encodeURIComponent(screen.name)}.mp4` : null,
           template:
             screen.frame === "custom" && screen.customFrame
