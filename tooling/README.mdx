@@ -114,6 +114,12 @@ node .appreel/tooling/presentation/compose.mjs \
 `compose.mjs --help` for the full reference, including how `custom` works). Any number of
 screens is fine — the stage zooms the whole row to fit.
 
+A screen that has nothing to show at first (say, a viewer whose page only exists once the other
+screen creates it) can join partway through: give it `"enterAtMs": 7000`, a time on the clips'
+shared clock. Until then it is hidden and the other screens sit centered without it; at that time
+they slide aside and it fades in beside them. The row is sized for every screen from the start, so
+nothing changes size when it enters. At least one screen must be on stage from the start.
+
 `--header` is a one-line title shown top-center (optional); `--wordmark` shows a small brand
 mark above it (also optional — neither is shown unless you pass it). To tune the header or
 layout without recording, run the same command with `--preview` in place of `--out`: it serves

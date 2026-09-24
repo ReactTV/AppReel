@@ -56,6 +56,13 @@ one element marked data-video-slot) and style.css. This package ships no
 default look for it — bring your own, or ask your coding agent to write one.
 "none" is fullscreen, no device wrapper at all.
 
+A screen can also take enterAtMs: a time on the clips' shared clock (they all
+start together) when it joins the stage. Until then it is hidden and the
+other screens sit centered without it; at that time they slide aside and it
+fades in. Use it for a screen that has nothing to show yet, like a viewer
+whose page only exists once the other screen has created it. At least one
+screen must be on stage from the start.
+
 --wordmark TEXT shows a small brand wordmark above the title (e.g. your app's
 name). Omit it and none is shown — this is optional, not required.
 
@@ -107,7 +114,7 @@ function resolveScreens(screensOption) {
   if (!Array.isArray(screens) || screens.length === 0) {
     throw new Error("screens must be a non-empty array of {name, label, frame, clip}");
   }
-  return screens.map((screen) => {
+  const resolved = screens.map((screen) => {
     if (!screen.name) throw new Error("every screen needs a name");
     if (!FRAME_TYPES.includes(screen.frame)) {
       throw new Error(`screen "${screen.name}".frame must be one of ${FRAME_TYPES.join(", ")}`);
@@ -115,14 +122,23 @@ function resolveScreens(screensOption) {
     if (screen.frame === "custom" && !screen.customFrame) {
       throw new Error(`screen "${screen.name}" has frame "custom" but no customFrame directory`);
     }
+    const enterAtMs = screen.enterAtMs ?? 0;
+    if (!Number.isFinite(enterAtMs) || enterAtMs < 0) {
+      throw new Error(`screen "${screen.name}".enterAtMs must be a number of milliseconds, 0 or more`);
+    }
     return {
       name: screen.name,
       label: screen.label ?? screen.name,
       frame: screen.frame,
       clip: screen.clip ? path.resolve(screen.clip) : null,
       customFrame: screen.customFrame ? path.resolve(screen.customFrame) : null,
+      enterAtMs,
     };
   });
+  if (resolved.every((screen) => screen.enterAtMs > 0)) {
+    throw new Error("at least one screen must be on stage from the start (enterAtMs 0 or unset)");
+  }
+  return resolved;
 }
 
 function serveFile(res, filePath) {
@@ -174,6 +190,7 @@ function serveStage({ screens = [], narration = [] }) {
           name: screen.name,
           label: screen.label,
           frame: screen.frame,
+          enterAtMs: screen.enterAtMs,
           clip: screen.clip ? `/screen/${encodeURIComponent(screen.name)}.mp4` : null,
           template:
             screen.frame === "custom" && screen.customFrame

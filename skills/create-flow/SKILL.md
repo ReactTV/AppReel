@@ -76,7 +76,9 @@ This gives three shapes in practice:
 - **Two or more screens** — always goes through the presentation stage. Every screen needs a
   `name` (used for narration focus — see [narration.md](../../tooling/references/narration.md#focus)),
   a `label`, and a `frame`. Only this shape gets the full narration treatment (header, glow moving
-  between screens).
+  between screens). A screen with nothing worth showing until partway through (a viewer of
+  something the other screen hasn't created yet) takes `enterAtMs` and joins the stage then,
+  instead of filling its opening seconds with an unrelated page — see `compose.mjs --help`.
 
 **`custom` frames:** this package ships no default look for `custom` — it's a bare wrapper with
 a marked slot for the video (`data-video-slot`) plus a `style.css` you (or this skill) write for

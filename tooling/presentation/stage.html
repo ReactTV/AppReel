@@ -516,7 +516,7 @@
       //   ?header=<text>       (this recording's title, shown top-center)
       //   &wordmark=<text>     (optional; blank by default, no brand mark shown)
       //   &narration=<url>     (optional; scheduled lines: {start, text, style, header, focus})
-      // /screens.json: [{ name, label, frame, clip, template?, style? }, ...]
+      // /screens.json: [{ name, label, frame, enterAtMs, clip, template?, style? }, ...]
       // frame is one of: desktop | mobile | mac | windows | chrome | custom | none.
       const params = new URLSearchParams(location.search);
 
@@ -717,7 +717,44 @@
           column.appendChild(wrap);
         }
 
-        return { column, video, ready };
+        return { column, video, ready, frame: screen.frame, enterAtMs: screen.enterAtMs ?? 0 };
+      }
+
+      const ROW_GAP = 80;
+      const ENTER_MS = 700;
+
+      // Screens with an enterAtMs join the stage partway through. The row is
+      // laid out (and zoomed) for every screen from the start, so nothing
+      // changes size when one enters; until then it is hidden and the others
+      // are shifted to sit centered without it. Transforms only, in the row's
+      // own unzoomed units, so nothing reflows and no glow is clipped.
+      function placeColumns(built, ms, { animate }) {
+        const widthOf = (b) => NATURAL_WIDTH[b.frame] ?? 840;
+        const leftEdges = (items) => {
+          const total =
+            items.reduce((sum, b) => sum + widthOf(b), 0) +
+            Math.max(0, items.length - 1) * ROW_GAP;
+          let x = -total / 2;
+          return new Map(
+            items.map((b) => {
+              const left = x;
+              x += widthOf(b) + ROW_GAP;
+              return [b, left];
+            }),
+          );
+        };
+        const finalLeft = leftEdges(built);
+        const stageLeft = leftEdges(built.filter((b) => b.enterAtMs <= ms));
+        for (const b of built) {
+          const isOnStage = stageLeft.has(b);
+          // An entering screen fades in from a short distance to its right.
+          const shift = isOnStage ? stageLeft.get(b) - finalLeft.get(b) : 24;
+          b.column.style.transition = animate
+            ? `transform ${ENTER_MS}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${ENTER_MS}ms ease`
+            : "none";
+          b.column.style.transform = `translateX(${shift}px)`;
+          b.column.style.opacity = isOnStage ? "1" : "0";
+        }
       }
 
       async function buildStage() {
@@ -729,11 +766,11 @@
 
         // Scale the whole row so any number of screens fits the 1800px
         // canvas, never growing past natural size.
-        const gap = 80;
         const totalWidth =
           screens.reduce((sum, screen) => sum + (NATURAL_WIDTH[screen.frame] ?? 840), 0) +
-          Math.max(0, screens.length - 1) * gap;
+          Math.max(0, screens.length - 1) * ROW_GAP;
         stageRow.style.zoom = Math.min(1, 1800 / totalWidth);
+        placeColumns(built, 0, { animate: false });
 
         return built;
       }
@@ -861,6 +898,19 @@
         const videos = built.map(({ video }) => video);
         await playAll(videos);
         const clockVideo = videos[0];
+
+        // Brings each late screen on stage once the clips reach its enterAtMs.
+        let onStageCount = built.filter((b) => b.enterAtMs <= 0).length;
+        const watchEntrances = () => {
+          const ms = clockVideo.currentTime * 1000;
+          const count = built.filter((b) => b.enterAtMs <= ms).length;
+          if (count !== onStageCount) {
+            onStageCount = count;
+            placeColumns(built, ms, { animate: true });
+          }
+          if (count < built.length) requestAnimationFrame(watchEntrances);
+        };
+        watchEntrances();
 
         const columnsByName = new Map(
           built.map(({ column }) => [column.dataset.screen, column]),
