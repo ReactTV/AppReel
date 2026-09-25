@@ -37,6 +37,13 @@ two, about 150ms apart, so a double-click reads as one on screen. `type`
 and `select` still perform a real click to focus the target, but that
 click leaves no ring — only `click` and `dblclick` do.
 
+The pointer, rings and captions are scripts injected into the page. Sites
+with a strict Content Security Policy (Trusted Types, as on YouTube) refuse
+them, so the recorder turns the page's CSP off for its own browser
+(`bypassCSP`, on by default). A scenario can set `"bypassCSP": false` to
+record under the page's real policy, at the cost of the pointer on such
+sites.
+
 ## Captions
 
 Captions are drawn on the page itself, and this repo keeps them off. The text a viewer reads is the

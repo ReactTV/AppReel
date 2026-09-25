@@ -156,6 +156,11 @@ export function resolveContextOptions(scenario, device, viewport, storageState) 
     ...(storageState ? { storageState: path.resolve(storageState) } : {}),
     ...(scenario.locale ? { locale: scenario.locale } : {}),
     ...(scenario.ignoreHTTPSErrors ? { ignoreHTTPSErrors: true } : {}),
+    // The cursor, click rings and captions are drawn by scripts injected into
+    // the page. A site with a strict Content Security Policy (Trusted Types,
+    // e.g. YouTube) refuses them, and the recording silently loses its cursor.
+    // This relaxes the page's CSP for the recording browser only.
+    bypassCSP: scenario.bypassCSP ?? true,
   };
 }
 
@@ -1832,6 +1837,9 @@ export function validateScenario(scenario, options = {}) {
   }
   if (scenario.ignoreHTTPSErrors !== undefined && typeof scenario.ignoreHTTPSErrors !== "boolean") {
     problems.push("scenario.ignoreHTTPSErrors must be true or false");
+  }
+  if (scenario.bypassCSP !== undefined && typeof scenario.bypassCSP !== "boolean") {
+    problems.push("scenario.bypassCSP must be true or false");
   }
   if (options.sessionMode === "conflict") {
     problems.push(
