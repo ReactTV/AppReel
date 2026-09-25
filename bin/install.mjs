@@ -218,7 +218,8 @@ A flow opts in from its \`composePresentation()\` call:
 
 The page is recorded at 1920x1080 in its own frame, so its styles and scripts can't touch the
 stage's. It plays for \`durationMs\` from when it has loaded, then fades out as the clips start;
-animate it for that long and let it hold its last frame after. Preview it without recording:
+animate it for that long and let it hold its last frame after. It is opened with
+\`?appreelIntroMs=<durationMs>\`, so an exit animation can be timed to finish just as it fades. Preview it without recording:
 \`node ../tooling/presentation/compose.mjs --preview --screens <screens.json> --intro <name>/intro.html\`.
 `,
   );

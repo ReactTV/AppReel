@@ -877,7 +877,8 @@
         const overlay = document.createElement("div");
         overlay.className = "intro";
         const frame = document.createElement("iframe");
-        frame.src = src;
+        // Tell the intro how long it has, so it can time its own ending.
+        frame.src = `${src}${src.includes("?") ? "&" : "?"}appreelIntroMs=${params.get("introMs")}`;
         overlay.appendChild(frame);
         document.body.appendChild(overlay);
         await new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }));

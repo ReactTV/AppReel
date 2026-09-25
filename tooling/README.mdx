@@ -137,7 +137,9 @@ install from before 0.1.1, just create `.appreel/brand/` yourself. For a plain-t
 An **intro** opens the video before the stage: any HTML page (an animated logo, a title card)
 played fullscreen, then crossfaded into the stage before the clips start. Pass
 `intro: { html, durationMs }` to `composePresentation()` (`--intro FILE --intro-ms N` on the CLI;
-default 3000ms). It runs in its own frame at 1920x1080, and files beside it are served too. Keep
+default 3000ms). It runs in its own frame at 1920x1080, and files beside it are served too. It is
+opened with `?appreelIntroMs=<durationMs>`, so an intro with an exit animation can time it to finish
+as the stage fades in. Keep
 intros you reuse in `.appreel/intros/<name>/`. The music runs under it from the first frame. To tune the header or
 layout without recording, run the same command with `--preview` in place of `--out`: it serves
 the stage and prints a URL to open in a browser (clips are optional there and fill the screens
