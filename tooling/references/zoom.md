@@ -11,10 +11,15 @@ the rules are built from.
 
 ## The model
 
-- A zoom is a **1.5x crop**: two thirds of the viewport on each axis, centered on a focus
-  `(cx, cy)` (0 to 1, normalized to the viewport). The crop can't leave the frame, so a focus only
-  has an effect between **0.33 and 0.67** on each axis. `0.33` means the crop touches the left/top
-  edge; anything lower is the same crop.
+- A zoom is a **crop**, by default **1.5x**: two thirds of the viewport on each axis, centered on
+  a focus `(cx, cy)` (0 to 1, normalized to the viewport). The crop can't leave the frame, so a
+  focus only has an effect between **0.33 and 0.67** on each axis at 1.5x. `0.33` means the crop
+  touches the left/top edge; anything lower is the same crop.
+- **Zoom level** (`zoomScale`) is set per scenario or per stretch, from just above 1 to 4. A crop at
+  scale `s` is `1/s` of the viewport on each axis, and a focus has an effect between `0.5/s` and
+  `1 - 0.5/s`: at 2x the crop is half the viewport and the range is `0.25..0.75`; at 1.25x it is 80%
+  and `0.4..0.6`. Go above 1.5x when the stretch's targets are small and close together (a lone
+  form field in the middle of an empty page); stay at or below it when they are spread out.
 - The UI is laid out in fixed CSS pixels, so the same normalized crop frames more or less of it at
   different viewports. Every focus in this doc is calibrated for a **1920x1080** viewport, which is
   why every desktop scenario sets exactly that (phone scenarios are the exception). It is also the
@@ -35,10 +40,12 @@ the rules are built from.
    opens (menu, popover, dialog, the page a link loads), fits in the same crop. Start a new one only
    when it can't fit or the scene changes.
 2. **Test fit, not distance.** Measure the normalized box of every element the stretch touches plus
-   the popups they open. If the union is at most ~0.6 wide and ~0.6 tall (the margin keeps targets
-   off the crop edge), it is one stretch, however many "beats" the steps feel like: name field → URL
-   → width → height → OK, or sidebar item → the page it opens → the URL on that page → its context
-   menu. The focus is the center of the union, clamped to `0.33..0.67`.
+   the popups they open. If the union is at most ~0.6 wide and ~0.6 tall at 1.5x (the margin keeps
+   targets off the crop edge; in general ~`0.9/s` at scale `s`, so ~0.45 at 2x), it is one stretch,
+   however many "beats" the steps feel like: name field → URL → width → height → OK, or sidebar item
+   → the page it opens → the URL on that page → its context menu. The focus is the center of the
+   union, clamped to the scale's range (`0.33..0.67` at 1.5x). A union much smaller than the crop is
+   the sign to raise the stretch's `zoomScale`.
 3. **Split only when it doesn't fit,** at a natural boundary: a dialog opens, the page changes, or
    attention moves to another region. Then choose the transition:
    - the next stretch follows directly from the last (menu → the dialog it opens): let it **glide**,
@@ -134,7 +141,8 @@ than the center of the targets in it.
    - every gap under 1s is a deliberate glide between different areas
    - no gap of 1 to ~3s between regions in the same area
    - no region runs across a wait where nothing happens
-   - every focus is within `0.33..0.67`
+   - every focus is within its scale's range (`0.33..0.67` at the default 1.5x), and every region's
+     `scale` is the one planned
 
    Then confirm the crop itself. Grab frames inside a stretch and check they show the same crop with
    every target in view:
@@ -182,6 +190,7 @@ else is here.
 | `holdZoomAfter: true` | step | Keep the crop after this click instead of zooming out |
 | `releaseZoomHold: true` | step | Zoom out after this step. Works whether or not a hold is active |
 | `zoomFocus: { cx, cy }` | step | Frame this point instead of following the pointer. Stays active until the hold is released |
+| `zoomScale` | step or scenario | Zoom level, above 1 up to 4 (default 1.5). On a step, it sets the stretch that step starts, and the steps it holds through inherit it; on the scenario, it is the default for every stretch. Regions at different levels never glide into each other: the first zooms out before the next zooms in |
 | `zoom: false` | step | No zoom for this click at all |
 | `zoomBreak: true` / `zoomContinuity: false` | step | Stop [auto-merge](#auto-continuity) joining this click to the next. Does **not** release a hold |
 | `zoomInMs` / `zoomOutMs` | step or scenario | Zoom-in / zoom-out duration (default 600) |

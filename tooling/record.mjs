@@ -6,7 +6,13 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { renderAutoZoom, transcode } from "./render-auto-zoom.mjs";
-import { parseSamples, suggestZooms, resolveZoomMergeOptions } from "./suggest-zooms.mjs";
+import {
+  parseSamples,
+  suggestZooms,
+  resolveZoomMergeOptions,
+  isValidZoomScale,
+  ZOOM_SCALE_PROBLEM,
+} from "./suggest-zooms.mjs";
 import { addMusic } from "./music.mjs";
 
 // Every desktop scenario records at 1920x1080 (phone scenarios take their
@@ -1274,6 +1280,7 @@ export async function runScenario(page, scenario, log, state) {
       state.zoomHeld = false;
       state.activeZoomStartT = undefined;
       state.activeZoomFocus = undefined;
+      state.activeZoomScale = undefined;
       await installOverlay(page, state);
       continue;
     }
@@ -1321,6 +1328,7 @@ export async function runScenario(page, scenario, log, state) {
         state.zoomHeld = false;
         state.activeZoomStartT = undefined;
         state.activeZoomFocus = undefined;
+        state.activeZoomScale = undefined;
       }
     }
     const skipZoomIn = state.zoomHeld || step.zoomIn === false;
@@ -1338,6 +1346,9 @@ export async function runScenario(page, scenario, log, state) {
       if (!skipZoomIn) {
         zoomStartT = Date.now() - state.startedAt;
         state.activeZoomStartT = zoomStartT;
+        // Like the focus, a stretch's zoom level is set by the step that
+        // starts it; the steps it holds through inherit it.
+        state.activeZoomScale = step.zoomScale ?? state.zoomScale;
         await sleep(zoomInMs);
       } else {
         zoomStartT = state.activeZoomStartT;
@@ -1410,6 +1421,7 @@ export async function runScenario(page, scenario, log, state) {
         cx: focus.cx,
         cy: focus.cy,
         zoomStartT: state.activeZoomStartT ?? zoomStartT,
+        ...(state.activeZoomScale !== undefined ? { scale: state.activeZoomScale } : {}),
         moveStartT,
         holdZoom:
           effectiveHoldZoom ||
@@ -1427,11 +1439,13 @@ export async function runScenario(page, scenario, log, state) {
           state.zoomHeld = false;
           state.activeZoomStartT = undefined;
           state.activeZoomFocus = undefined;
+          state.activeZoomScale = undefined;
         }
       } else {
         await sleep(zoomOutMs);
         state.activeZoomStartT = undefined;
         state.activeZoomFocus = undefined;
+        state.activeZoomScale = undefined;
       }
     }
     if (action === "type") {
@@ -1577,10 +1591,12 @@ export async function prepareRecording(options) {
     moveSteps: Number.isFinite(scenario.moveSteps) ? scenario.moveSteps : 18,
     zoomInMs: Number.isFinite(scenario.zoomInMs) ? scenario.zoomInMs : CLICK_ZOOM_IN_MS,
     zoomOutMs: Number.isFinite(scenario.zoomOutMs) ? scenario.zoomOutMs : CLICK_ZOOM_OUT_MS,
+    zoomScale: scenario.zoomScale,
     zoomHeld: false,
     narration: [],
     activeZoomStartT: undefined,
     activeZoomFocus: undefined,
+    activeZoomScale: undefined,
     isRecordedCursorVisible: true,
     lastClickLogEntry: undefined,
     effects,
@@ -1796,6 +1812,12 @@ export function validateScenario(scenario, options = {}) {
     if (placement !== undefined && !CAPTION_PLACEMENTS.includes(placement)) {
       problems.push(`steps[${index}].captionPlacement must be one of ${CAPTION_PLACEMENTS.join(", ")}`);
     }
+    if (steps[index].zoomScale !== undefined && !isValidZoomScale(steps[index].zoomScale)) {
+      problems.push(`steps[${index}].zoomScale ${ZOOM_SCALE_PROBLEM}`);
+    }
+  }
+  if (scenario.zoomScale !== undefined && !isValidZoomScale(scenario.zoomScale)) {
+    problems.push(`scenario.zoomScale ${ZOOM_SCALE_PROBLEM}`);
   }
   try {
     resolveEffects(scenario);

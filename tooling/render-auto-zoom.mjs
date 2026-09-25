@@ -8,7 +8,13 @@ import {
   DELIVERY_FILTER_TAIL,
   verifyDeliveryFile,
 } from "./delivery-format.mjs";
-import { parseSamples, suggestZooms, ZOOM_SCALE } from "./suggest-zooms.mjs";
+import {
+  parseSamples,
+  suggestZooms,
+  isValidZoomScale,
+  ZOOM_SCALE,
+  ZOOM_SCALE_PROBLEM,
+} from "./suggest-zooms.mjs";
 
 export const ZOOM_IN_MS = 600;
 export const ZOOM_OUT_MS = 600;
@@ -22,9 +28,12 @@ export const ZOOM_GLIDE_HOLD_MS = 400;
 
 function printUsage(stream) {
   stream.write(`Usage: render-auto-zoom.mjs --video FILE --out FILE [--zooms FILE | --clicks FILE]
+                           [--scale N]
 
 Apply auto-zoom regions to a recorded viewport video. Needs ffmpeg on PATH.
 Pass --zooms from suggest-zooms.mjs, or --clicks plus optional --duration-ms.
+--scale sets the zoom level for regions that don't carry their own (default
+${ZOOM_SCALE}); a region's own "scale" in --zooms, or a click's in --clicks, wins.
 `);
 }
 
@@ -45,6 +54,10 @@ function parseArgs(argv) {
       i += 1;
     } else if (arg === "--duration-ms" || arg === "--trim-start-ms") {
       args[arg === "--duration-ms" ? "durationMs" : "trimStartMs"] = Number(argv[i + 1]);
+      i += 1;
+    } else if (arg === "--scale") {
+      args.scale = Number(argv[i + 1]);
+      if (!isValidZoomScale(args.scale)) throw new Error(`--scale ${ZOOM_SCALE_PROBLEM}`);
       i += 1;
     } else {
       throw new Error(`unknown option: ${arg}`);
@@ -163,8 +176,11 @@ function buildSegments(suggestions, durationMs, timing = {}) {
     }
     const cx = Number(region.focus?.cx ?? 0.5);
     const cy = Number(region.focus?.cy ?? 0.5);
+    const scale = Number(region.scale ?? ZOOM_SCALE);
     const prev = segments.at(-1);
-    if (prev?.kind === "zoom" && start - prev.end < glideGapMs) {
+    // A glide only slides the focus, so it keeps the zoom level it started
+    // at; regions at different levels zoom out and back in instead.
+    if (prev?.kind === "zoom" && start - prev.end < glideGapMs && prev.scale === scale) {
       // Slide starting a beat after the previous region's last click, over no
       // longer than the zoom-out plus zoom-in it replaces, and done by the time
       // the next one would have been fully in.
@@ -184,11 +200,13 @@ function buildSegments(suggestions, durationMs, timing = {}) {
     }
     segments.push({
       kind: "zoom",
-      start,
+      // Never before the previous segment ends: a region too close to glide
+      // into (a different zoom level) starts once that one has zoomed out.
+      start: Math.max(start, cursor),
       end,
       cx,
       cy,
-      scale: Number(region.scale ?? ZOOM_SCALE),
+      scale,
       glides: [],
     });
     cursor = end;

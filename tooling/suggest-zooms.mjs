@@ -8,6 +8,13 @@ export const PAD_MS = 500;
 export const DOUBLE_CLICK_MS = 350;
 export const DOUBLE_CLICK_DIST = 0.04;
 export const ZOOM_SCALE = 1.5;
+/** How far a zoom may go: past 1 (no zoom), up to 4x (a quarter of the viewport). */
+export const MAX_ZOOM_SCALE = 4;
+export const ZOOM_SCALE_PROBLEM = `must be a number above 1 and at most ${MAX_ZOOM_SCALE} (the default is ${ZOOM_SCALE})`;
+
+export function isValidZoomScale(value) {
+  return Number.isFinite(value) && value > 1 && value <= MAX_ZOOM_SCALE;
+}
 /** Normalized viewport distance — clicks closer than this can share one zoom. */
 export const MERGE_DIST = 0.35;
 
@@ -115,6 +122,7 @@ export function normalizeSamples(rawSamples) {
           ? Math.max(0, Number(sample.zoomStartT))
           : undefined,
         holdZoom: Boolean(sample.holdZoom),
+        scale: isValidZoomScale(sample.scale) ? Number(sample.scale) : undefined,
         zoomEndT: Number.isFinite(sample.zoomEndT)
           ? Math.max(0, Number(sample.zoomEndT))
           : undefined,
@@ -244,11 +252,13 @@ export function suggestZooms(rawSamples, totalMs, options = {}) {
       Number.isFinite(last.zoomEndT) ? last.zoomEndT : last.timeMs + zoomOutMs,
     );
     if (end > start) {
+      // A stretch's own zoomScale (logged on its clicks) wins over the default.
+      const regionScale = first.scale ?? scale;
       suggestions.push({
         start,
         end,
-        focus: clampFocus(focus, scale),
-        scale,
+        focus: clampFocus(focus, regionScale),
+        scale: regionScale,
       });
     }
     i = j + 1;
