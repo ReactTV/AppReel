@@ -1,6 +1,6 @@
 {
   "name": "@reacttv/appreel",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Takes a scripted tour of your web app and hands you back a video.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE",

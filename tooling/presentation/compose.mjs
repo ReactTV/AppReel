@@ -47,7 +47,7 @@ const FRAME_TYPES = ["desktop", "mobile", "mac", "windows", "chrome", "custom", 
 
 function printUsage(stream) {
   stream.write(`Usage: compose.mjs --screens FILE --out FILE [--header TEXT] [--wordmark TEXT]
-                  [--brand DIR | --no-brand] [--narration FILE]
+                  [--brand DIR | --no-brand] [--intro FILE [--intro-ms N]] [--narration FILE]
        compose.mjs --preview --screens FILE [--narration FILE] [--header TEXT] [--wordmark TEXT]
                   [--brand DIR | --no-brand]
 
@@ -94,6 +94,13 @@ folder for one video; --no-brand leaves it off. See .appreel/brand/README.md.
 title (e.g. your app's name). A brand.html replaces it. Omit both and no
 brand mark is shown.
 
+--intro FILE plays an HTML page fullscreen before the stage (an animated
+logo, a title card), then crossfades into the stage, and only then do the
+clips start. It runs in its own frame, so its styles and scripts never touch
+the stage's, and files beside it are served too. --intro-ms N sets how long
+it plays (default 3000). From code: intro: { html, durationMs }. Keep intros
+you reuse in .appreel/intros/<name>/.
+
 Narration (the line of text under the screens) is read from the
 <clip>.narration.json that record.mjs writes to each clip's artifacts/
 subfolder, merged across every screen by time and scheduled so every line
@@ -115,6 +122,7 @@ function parseArgs(argv) {
     header: null,
     wordmark: null,
     brand: undefined,
+    intro: undefined,
     narration: null,
     preview: false,
   };
@@ -126,6 +134,8 @@ function parseArgs(argv) {
     else if (arg === "--wordmark") args.wordmark = argv[++i];
     else if (arg === "--brand") args.brand = argv[++i];
     else if (arg === "--no-brand") args.brand = false;
+    else if (arg === "--intro") args.intro = { ...args.intro, html: argv[++i] };
+    else if (arg === "--intro-ms") args.intro = { ...args.intro, durationMs: Number(argv[++i]) };
     else if (arg === "--narration") args.narration = argv[++i];
     else if (arg === "--preview") args.preview = true;
     else if (arg === "--help" || arg === "-h") args.help = true;
@@ -191,6 +201,35 @@ function resolveBrand(brandOption) {
   return { dir, hasStyle: fs.existsSync(path.join(dir, "style.css")) };
 }
 
+const DEFAULT_INTRO_MS = 3000;
+// Time the reloaded stage takes to show its intro, added to the recording.
+const INTRO_LOAD_MARGIN_MS = 500;
+
+// intro: { html, durationMs } → the page to play first, served from its own
+// folder so its relative links work. Unset means no intro.
+function resolveIntro(introOption) {
+  if (!introOption) return null;
+  if (typeof introOption.html !== "string") {
+    throw new Error("intro needs html: the path to the page to play before the stage");
+  }
+  const htmlPath = path.resolve(introOption.html);
+  if (!fs.existsSync(htmlPath)) throw new Error(`intro page ${htmlPath} does not exist`);
+  const durationMs = introOption.durationMs ?? DEFAULT_INTRO_MS;
+  if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    throw new Error("intro.durationMs must be a number of milliseconds above 0");
+  }
+  return { dir: path.dirname(htmlPath), file: path.basename(htmlPath), durationMs };
+}
+
+// A file under `prefix` in the URL, from inside `dir` only.
+function serveFolderFile(res, url, prefix, dir) {
+  const filePath = path.join(dir, decodeURIComponent(url.pathname.slice(prefix.length)));
+  const relative = path.relative(dir, filePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
+  serveFile(res, filePath);
+  return true;
+}
+
 function serveFile(res, filePath) {
   if (!fs.existsSync(filePath)) {
     res.writeHead(404);
@@ -225,7 +264,7 @@ function serveVideo(req, res, filePath) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-function serveStage({ screens = [], narration = [], brand = null }) {
+function serveStage({ screens = [], narration = [], brand = null, intro = null }) {
   const screenByName = new Map(screens.map((screen) => [screen.name, screen]));
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -276,11 +315,12 @@ function serveStage({ screens = [], narration = [], brand = null }) {
         if (screen?.customFrame) return serveFile(res, path.join(screen.customFrame, frameMatch[2]));
       }
 
-      // Anything in the brand folder, so its own relative links resolve.
+      // Anything in the brand or intro folder, so their own relative links resolve.
       if (brand && url.pathname.startsWith("/brand/")) {
-        const filePath = path.join(brand.dir, decodeURIComponent(url.pathname.slice("/brand/".length)));
-        const relative = path.relative(brand.dir, filePath);
-        if (!relative.startsWith("..") && !path.isAbsolute(relative)) return serveFile(res, filePath);
+        if (serveFolderFile(res, url, "/brand/", brand.dir)) return;
+      }
+      if (intro && url.pathname.startsWith("/intro/")) {
+        if (serveFolderFile(res, url, "/intro/", intro.dir)) return;
       }
 
       res.writeHead(404);
@@ -293,7 +333,7 @@ function serveStage({ screens = [], narration = [], brand = null }) {
 // Screen data (name/label/frame/clip URLs) goes to the page via /screens.json,
 // fetched client-side — an N-length structured array doesn't belong in a
 // query string. Only the handful of page-wide scalars go here.
-function stageQuery({ header, wordmark, brand, hasNarration }) {
+function stageQuery({ header, wordmark, brand, intro, hasNarration }) {
   const query = new URLSearchParams({
     narrationIn: String(NARRATION_IN_MS),
     narrationOut: String(NARRATION_OUT_MS),
@@ -301,6 +341,10 @@ function stageQuery({ header, wordmark, brand, hasNarration }) {
   if (typeof header === "string") query.set("header", header);
   if (typeof wordmark === "string") query.set("wordmark", wordmark);
   if (brand) query.set("brand", brand.hasStyle ? "html+css" : "html");
+  if (intro) {
+    query.set("intro", `/intro/${encodeURIComponent(intro.file)}`);
+    query.set("introMs", String(intro.durationMs));
+  }
   if (hasNarration) query.set("narration", "/narration.json");
   return query;
 }
@@ -312,9 +356,10 @@ async function previewStage(options) {
   );
   warnings.forEach((warning) => process.stderr.write(`narration: ${warning}\n`));
   const brand = resolveBrand(options.brand);
-  const server = await serveStage({ screens, narration: lines, brand });
+  const intro = resolveIntro(options.intro);
+  const server = await serveStage({ screens, narration: lines, brand, intro });
   const port = server.address().port;
-  const query = stageQuery({ ...options, brand, hasNarration: lines.length > 0 });
+  const query = stageQuery({ ...options, brand, intro, hasNarration: lines.length > 0 });
   query.set("fit", "1");
   process.stdout.write(`Preview: http://127.0.0.1:${port}/stage.html?${query}\n`);
   process.stdout.write("Serving until Ctrl+C — edit stage.html and refresh.\n");
@@ -333,25 +378,37 @@ export async function composePresentation(options) {
   );
   warnings.forEach((warning) => process.stderr.write(`narration: ${warning}\n`));
   const brand = resolveBrand(options.brand);
-  const server = await serveStage({ screens, narration: lines, brand });
+  const intro = resolveIntro(options.intro);
+  const server = await serveStage({ screens, narration: lines, brand, intro });
   const port = server.address().port;
   // Always pass a header (empty if none) so a recording never falls back to
   // the stage's sample title, which is only for previewing.
   const query = stageQuery({
     ...options,
     brand,
+    intro,
     header: options.header ?? "",
     wordmark: options.wordmark ?? "",
     hasNarration: lines.length > 0,
   });
+  const stageUrl = `http://127.0.0.1:${port}/stage.html?${query}`;
 
   let result;
   try {
     result = await recordWalkthrough({
       scenario: {
-        url: `http://127.0.0.1:${port}/stage.html?${query}`,
+        url: stageUrl,
         effects: { captions: false, cursor: false },
-        steps: [{ action: "wait", ms: waitMs }],
+        // An intro is the video's first frames, so it can't start while the
+        // page is still being set up for recording: reload the stage once
+        // capture is running, and wait out the intro (plus a moment for the
+        // reload) as well as the clips.
+        steps: intro
+          ? [
+              { action: "goto", url: stageUrl },
+              { action: "wait", ms: waitMs + intro.durationMs + INTRO_LOAD_MARGIN_MS },
+            ]
+          : [{ action: "wait", ms: waitMs }],
       },
       out: outPath,
       width: STAGE_WIDTH,

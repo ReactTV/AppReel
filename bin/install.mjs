@@ -39,13 +39,13 @@ function usage() {
 Commands:
   install    First-time setup: copy tooling/skills into ./.appreel/ and
              scaffold the folders your project adds its own content to
-             (music, brand, auth, shared helpers, custom frames, flows)
+             (music, brand, intros, auth, shared helpers, custom frames, flows)
   update     Refresh tooling/skills to match the installed npm package —
              does not touch flows, music, auth, or anything else you own
   status     Is .appreel/ installed, is it up to date, are prerequisites
              (ffmpeg, Playwright) satisfied
   uninstall  Remove tooling/ and skills/ only — never touches flows/,
-             music/, brand/, auth/, shared/, or frames/
+             music/, brand/, intros/, auth/, shared/, or frames/
   help       This message
   version    Print the installed appreel version
 `);
@@ -128,6 +128,7 @@ Everything AppReel needs to script and produce walkthrough videos of this app.
 | \`flows/\` | One folder per video — the thing you actually maintain |
 | \`music/\` | The one background track every video gets |
 | \`brand/\` | Your brand mark over every video, in HTML + CSS |
+| \`intros/\` | Intro pages a video can open with (an animated logo, a title card) |
 | \`auth/\` | Saved sign-in sessions (gitignored) |
 | \`shared/\` | Cross-flow setup/reset helpers, if your project needs them |
 | \`frames/\` | Custom device-frame wrappers shared by more than one flow |
@@ -199,6 +200,26 @@ Example, a two-weight wordmark:
 Every video picks this folder up on its own. A flow can leave it off with \`brand: false\` in its
 \`composePresentation()\` call, or use another folder with \`brand: "path/to/folder"\`. Preview it
 without recording: \`node ../tooling/presentation/compose.mjs --preview --screens <screens.json>\`.
+`,
+  );
+
+  writeIfMissing(
+    "intros/README.md",
+    `# Intros
+
+Pages a video can play fullscreen before its stage, like an animated logo or a title card, then
+crossfade into the stage. One folder per intro, so any flow can reuse it:
+
+    intros/<name>/intro.html   (plus any images, fonts or scripts it uses, served alongside)
+
+A flow opts in from its \`composePresentation()\` call:
+
+    intro: { html: path.join(__dirname, "..", "..", "intros", "<name>", "intro.html"), durationMs: 3000 }
+
+The page is recorded at 1920x1080 in its own frame, so its styles and scripts can't touch the
+stage's. It plays for \`durationMs\` from when it has loaded, then fades out as the clips start;
+animate it for that long and let it hold its last frame after. Preview it without recording:
+\`node ../tooling/presentation/compose.mjs --preview --screens <screens.json> --intro <name>/intro.html\`.
 `,
   );
 

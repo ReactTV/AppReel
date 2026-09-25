@@ -79,6 +79,24 @@
       .wordmark:empty {
         display: none;
       }
+      /* An intro (?intro): a page played fullscreen over everything before the
+         stage, in its own frame, then faded out as the clips start. */
+      .intro {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        background: #000;
+        transition: opacity var(--intro-fade) ease;
+      }
+      .intro.out {
+        opacity: 0;
+      }
+      .intro iframe {
+        display: block;
+        width: 1920px;
+        height: 1080px;
+        border: 0;
+      }
       /* The project's brand.html (.appreel/brand/), in place of the wordmark.
          Unstyled here on purpose: its own style.css decides the look. */
       .brand:empty {
@@ -532,6 +550,7 @@
       //   ?header=<text>       (this recording's title, shown top-center)
       //   &wordmark=<text>     (optional; blank by default, no brand mark shown)
       //   &brand=html|html+css (optional; load /brand/brand.html [+ style.css])
+      //   &intro=<url>&introMs=<ms> (optional; a page played before the stage)
       //   &narration=<url>     (optional; scheduled lines: {start, text, style, header, focus})
       // /screens.json: [{ name, label, frame, enterAtMs, clip, template?, style? }, ...]
       // frame is one of: desktop | mobile | mac | windows | chrome | custom | none.
@@ -848,6 +867,25 @@
         await document.fonts.ready;
       }
 
+      // The intro covers the stage from the first frame; the stage is built
+      // behind it, and the clips start as it fades out.
+      const INTRO_FADE_MS = 600;
+      document.documentElement.style.setProperty("--intro-fade", `${INTRO_FADE_MS}ms`);
+      async function playIntro() {
+        const src = params.get("intro");
+        if (!src) return;
+        const overlay = document.createElement("div");
+        overlay.className = "intro";
+        const frame = document.createElement("iframe");
+        frame.src = src;
+        overlay.appendChild(frame);
+        document.body.appendChild(overlay);
+        await new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }));
+        await new Promise((resolve) => setTimeout(resolve, Number(params.get("introMs"))));
+        overlay.classList.add("out");
+        setTimeout(() => overlay.remove(), INTRO_FADE_MS + 50);
+      }
+
       async function playAll(videos) {
         const ready = (v) =>
           v.readyState >= 3
@@ -967,7 +1005,9 @@
       );
 
       async function main() {
+        const introDone = playIntro();
         const [built] = await Promise.all([buildStage(), loadBrand()]);
+        await introDone;
         const videos = built.map(({ video }) => video);
         await playAll(videos);
         const clockVideo = videos[0];

@@ -34,7 +34,7 @@ npx @reacttv/appreel install
 
 Copies the recorder tooling and the `create-flow` / `record-flow` skills into `.appreel/` in
 your project, and scaffolds the folders your project adds its own content to (`music/`, `brand/`,
-`auth/`, `shared/`, `frames/`, `flows/`).
+`intros/`, `auth/`, `shared/`, `frames/`, `flows/`).
 
 ## Commands
 
@@ -45,7 +45,7 @@ you bumped the npm package — nothing here runs on its own, you always trigger 
 | Command | Does |
 | --- | --- |
 | `npx @reacttv/appreel install` | First-time setup (see above). Safe to re-run — never overwrites anything you've added |
-| `npx @reacttv/appreel update` | Refreshes `tooling/` and `skills/` to match the installed npm package. Touches nothing else — not `flows/`, `music/`, `brand/`, `auth/`, `shared/`, `frames/`, or `.appreel/README.md` |
+| `npx @reacttv/appreel update` | Refreshes `tooling/` and `skills/` to match the installed npm package. Touches nothing else — not `flows/`, `music/`, `brand/`, `intros/`, `auth/`, `shared/`, `frames/`, or `.appreel/README.md` |
 | `npx @reacttv/appreel status` | Is `.appreel/` installed, is it up to date with `node_modules`, and are prerequisites (ffmpeg, Playwright) satisfied |
 | `npx @reacttv/appreel uninstall` | Removes `tooling/` and `skills/` only — never touches anything you own |
 | `npx @reacttv/appreel help` | Lists these commands |
