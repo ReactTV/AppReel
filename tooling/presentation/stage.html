@@ -877,8 +877,13 @@
         const overlay = document.createElement("div");
         overlay.className = "intro";
         const frame = document.createElement("iframe");
-        // Tell the intro how long it has, so it can time its own ending.
-        frame.src = `${src}${src.includes("?") ? "&" : "?"}appreelIntroMs=${params.get("introMs")}`;
+        // Tell the intro how long it has, so it can time its own ending, and
+        // the video's header, so a shared intro can show each video's title.
+        const introParams = new URLSearchParams({
+          appreelIntroMs: params.get("introMs"),
+          appreelHeader: params.get("header") ?? "",
+        });
+        frame.src = `${src}${src.includes("?") ? "&" : "?"}${introParams}`;
         overlay.appendChild(frame);
         document.body.appendChild(overlay);
         await new Promise((resolve) => frame.addEventListener("load", resolve, { once: true }));

@@ -100,7 +100,8 @@ clips start. It runs in its own frame, so its styles and scripts never touch
 the stage's, and files beside it are served too. --intro-ms N sets how long
 it plays (default 3000), counted from when it has loaded; the page is opened
 with ?appreelIntroMs=N so it can time its own ending (an exit animation that
-finishes as the stage fades in). From code: intro: { html, durationMs }. Keep
+finishes as the stage fades in), and ?appreelHeader=<the video's header> so an
+intro shared by several videos can show each one's title. From code: intro: { html, durationMs }. Keep
 intros you reuse in .appreel/intros/<name>/.
 
 Narration (the line of text under the screens) is read from the
