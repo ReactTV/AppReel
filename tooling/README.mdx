@@ -141,7 +141,17 @@ default 3000ms). It runs in its own frame at 1920x1080, and files beside it are 
 opened with `?appreelIntroMs=<durationMs>`, so an intro with an exit animation can time it to finish
 as the stage fades in, and `?appreelHeader=<header>`, so an intro shared by several videos can show
 each one's title. Keep
-intros you reuse in `.appreel/intros/<name>/`. The music runs under it from the first frame. To tune the header or
+intros you reuse in `.appreel/intros/<name>/`. The music runs under it from the first frame.
+
+An **outro** closes the video the same way (a call to action, an end card): pass
+`outro: { html, durationMs }` (`--outro FILE --outro-ms N`; default 3000ms). Once the clips and
+their tail padding are over, it fades in over the stage and plays for `durationMs`, counted from
+when it starts fading in, until the video ends; the music fades out under it. It is opened with
+`?appreelOutroMs=<durationMs>` and `?appreelHeader=<header>`. Keep outros you reuse in
+`.appreel/outros/<name>/`. Both are optional: leave either out and the video starts or ends on
+the stage.
+
+To tune the header or
 layout without recording, run the same command with `--preview` in place of `--out`: it serves
 the stage and prints a URL to open in a browser (clips are optional there and fill the screens
 if given). Without `--header`, the preview shows a sample title so you can judge the layout.

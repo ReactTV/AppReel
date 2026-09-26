@@ -39,13 +39,14 @@ function usage() {
 Commands:
   install    First-time setup: copy tooling/skills into ./.appreel/ and
              scaffold the folders your project adds its own content to
-             (music, brand, intros, auth, shared helpers, custom frames, flows)
+             (music, brand, intros, outros, auth, shared helpers, custom
+             frames, flows)
   update     Refresh tooling/skills to match the installed npm package —
              does not touch flows, music, auth, or anything else you own
   status     Is .appreel/ installed, is it up to date, are prerequisites
              (ffmpeg, Playwright) satisfied
   uninstall  Remove tooling/ and skills/ only — never touches flows/,
-             music/, brand/, intros/, auth/, shared/, or frames/
+             music/, brand/, intros/, outros/, auth/, shared/, or frames/
   help       This message
   version    Print the installed appreel version
 `);
@@ -129,6 +130,7 @@ Everything AppReel needs to script and produce walkthrough videos of this app.
 | \`music/\` | The one background track every video gets |
 | \`brand/\` | Your brand mark over every video, in HTML + CSS |
 | \`intros/\` | Intro pages a video can open with (an animated logo, a title card) |
+| \`outros/\` | Outro pages a video can close with (a call to action, an end card) |
 | \`auth/\` | Saved sign-in sessions (gitignored) |
 | \`shared/\` | Cross-flow setup/reset helpers, if your project needs them |
 | \`frames/\` | Custom device-frame wrappers shared by more than one flow |
@@ -222,6 +224,28 @@ animate it for that long and let it hold its last frame after. It is opened with
 \`?appreelIntroMs=<durationMs>\`, so an exit animation can be timed to finish just as it fades,
 and \`?appreelHeader=<the video's header>\`, so one intro can show each video's title. Preview it without recording:
 \`node ../tooling/presentation/compose.mjs --preview --screens <screens.json> --intro <name>/intro.html\`.
+`,
+  );
+
+  writeIfMissing(
+    "outros/README.md",
+    `# Outros
+
+Pages a video can close with, like a call to action or an end card: once the clips are over, the
+page fades in over the stage and holds until the video ends. One folder per outro, so any flow can
+reuse it:
+
+    outros/<name>/outro.html   (plus any images, fonts or scripts it uses, served alongside)
+
+A flow opts in from its \`composePresentation()\` call:
+
+    outro: { html: path.join(__dirname, "..", "..", "outros", "<name>", "outro.html"), durationMs: 3000 }
+
+The page is recorded at 1920x1080 in its own frame, so its styles and scripts can't touch the
+stage's. It plays for \`durationMs\`, counted from when it starts fading in, and the video ends
+with it; the music fades out under it. It is opened with \`?appreelOutroMs=<durationMs>\` and
+\`?appreelHeader=<the video's header>\`. Preview it without recording:
+\`node ../tooling/presentation/compose.mjs --preview --screens <screens.json> --outro <name>/outro.html\`.
 `,
   );
 

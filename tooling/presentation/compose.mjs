@@ -47,7 +47,8 @@ const FRAME_TYPES = ["desktop", "mobile", "mac", "windows", "chrome", "custom", 
 
 function printUsage(stream) {
   stream.write(`Usage: compose.mjs --screens FILE --out FILE [--header TEXT] [--wordmark TEXT]
-                  [--brand DIR | --no-brand] [--intro FILE [--intro-ms N]] [--narration FILE]
+                  [--brand DIR | --no-brand] [--intro FILE [--intro-ms N]]
+                  [--outro FILE [--outro-ms N]] [--narration FILE]
        compose.mjs --preview --screens FILE [--narration FILE] [--header TEXT] [--wordmark TEXT]
                   [--brand DIR | --no-brand]
 
@@ -104,6 +105,12 @@ finishes as the stage fades in), and ?appreelHeader=<the video's header> so an
 intro shared by several videos can show each one's title. From code: intro: { html, durationMs }. Keep
 intros you reuse in .appreel/intros/<name>/.
 
+--outro FILE is the same for the end: once the clips (and their tail padding)
+are over, the page fades in over the stage and plays for --outro-ms N
+(default 3000), counted from when it starts fading in, until the video ends.
+It is opened with ?appreelOutroMs=N and ?appreelHeader too. From code:
+outro: { html, durationMs }. Keep outros you reuse in .appreel/outros/<name>/.
+
 Narration (the line of text under the screens) is read from the
 <clip>.narration.json that record.mjs writes to each clip's artifacts/
 subfolder, merged across every screen by time and scheduled so every line
@@ -126,6 +133,7 @@ function parseArgs(argv) {
     wordmark: null,
     brand: undefined,
     intro: undefined,
+    outro: undefined,
     narration: null,
     preview: false,
   };
@@ -139,6 +147,8 @@ function parseArgs(argv) {
     else if (arg === "--no-brand") args.brand = false;
     else if (arg === "--intro") args.intro = { ...args.intro, html: argv[++i] };
     else if (arg === "--intro-ms") args.intro = { ...args.intro, durationMs: Number(argv[++i]) };
+    else if (arg === "--outro") args.outro = { ...args.outro, html: argv[++i] };
+    else if (arg === "--outro-ms") args.outro = { ...args.outro, durationMs: Number(argv[++i]) };
     else if (arg === "--narration") args.narration = argv[++i];
     else if (arg === "--preview") args.preview = true;
     else if (arg === "--help" || arg === "-h") args.help = true;
@@ -204,22 +214,26 @@ function resolveBrand(brandOption) {
   return { dir, hasStyle: fs.existsSync(path.join(dir, "style.css")) };
 }
 
-const DEFAULT_INTRO_MS = 3000;
-// Time the reloaded stage takes to show its intro, added to the recording.
-const INTRO_LOAD_MARGIN_MS = 500;
+// How long the stage holds after the longest clip ends, unless tailPaddingMs says otherwise.
+const DEFAULT_STAGE_TAIL_MS = 800;
+const DEFAULT_PAGE_MS = 3000;
+// Time the stage takes to load an intro or outro page, added to the recording
+// for each.
+const PAGE_LOAD_MARGIN_MS = 500;
 
-// intro: { html, durationMs } → the page to play first, served from its own
-// folder so its relative links work. Unset means no intro.
-function resolveIntro(introOption) {
-  if (!introOption) return null;
-  if (typeof introOption.html !== "string") {
-    throw new Error("intro needs html: the path to the page to play before the stage");
+// intro/outro: { html, durationMs } → the page to play before/after the
+// stage, served from its own folder so its relative links work. Unset means
+// none.
+function resolvePage(pageOption, name) {
+  if (!pageOption) return null;
+  if (typeof pageOption.html !== "string") {
+    throw new Error(`${name} needs html: the path to the page to play`);
   }
-  const htmlPath = path.resolve(introOption.html);
-  if (!fs.existsSync(htmlPath)) throw new Error(`intro page ${htmlPath} does not exist`);
-  const durationMs = introOption.durationMs ?? DEFAULT_INTRO_MS;
+  const htmlPath = path.resolve(pageOption.html);
+  if (!fs.existsSync(htmlPath)) throw new Error(`${name} page ${htmlPath} does not exist`);
+  const durationMs = pageOption.durationMs ?? DEFAULT_PAGE_MS;
   if (!Number.isFinite(durationMs) || durationMs <= 0) {
-    throw new Error("intro.durationMs must be a number of milliseconds above 0");
+    throw new Error(`${name}.durationMs must be a number of milliseconds above 0`);
   }
   return { dir: path.dirname(htmlPath), file: path.basename(htmlPath), durationMs };
 }
@@ -267,7 +281,7 @@ function serveVideo(req, res, filePath) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-function serveStage({ screens = [], narration = [], brand = null, intro = null }) {
+function serveStage({ screens = [], narration = [], brand = null, intro = null, outro = null }) {
   const screenByName = new Map(screens.map((screen) => [screen.name, screen]));
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -318,12 +332,15 @@ function serveStage({ screens = [], narration = [], brand = null, intro = null }
         if (screen?.customFrame) return serveFile(res, path.join(screen.customFrame, frameMatch[2]));
       }
 
-      // Anything in the brand or intro folder, so their own relative links resolve.
+      // Anything in the brand, intro or outro folder, so their own relative links resolve.
       if (brand && url.pathname.startsWith("/brand/")) {
         if (serveFolderFile(res, url, "/brand/", brand.dir)) return;
       }
       if (intro && url.pathname.startsWith("/intro/")) {
         if (serveFolderFile(res, url, "/intro/", intro.dir)) return;
+      }
+      if (outro && url.pathname.startsWith("/outro/")) {
+        if (serveFolderFile(res, url, "/outro/", outro.dir)) return;
       }
 
       res.writeHead(404);
@@ -336,7 +353,7 @@ function serveStage({ screens = [], narration = [], brand = null, intro = null }
 // Screen data (name/label/frame/clip URLs) goes to the page via /screens.json,
 // fetched client-side — an N-length structured array doesn't belong in a
 // query string. Only the handful of page-wide scalars go here.
-function stageQuery({ header, wordmark, brand, intro, hasNarration }) {
+function stageQuery({ header, wordmark, brand, intro, outro, outroAtMs, hasNarration }) {
   const query = new URLSearchParams({
     narrationIn: String(NARRATION_IN_MS),
     narrationOut: String(NARRATION_OUT_MS),
@@ -347,6 +364,11 @@ function stageQuery({ header, wordmark, brand, intro, hasNarration }) {
   if (intro) {
     query.set("intro", `/intro/${encodeURIComponent(intro.file)}`);
     query.set("introMs", String(intro.durationMs));
+  }
+  if (outro) {
+    query.set("outro", `/outro/${encodeURIComponent(outro.file)}`);
+    query.set("outroMs", String(outro.durationMs));
+    query.set("outroAt", String(outroAtMs));
   }
   if (hasNarration) query.set("narration", "/narration.json");
   return query;
@@ -359,21 +381,40 @@ async function previewStage(options) {
   );
   warnings.forEach((warning) => process.stderr.write(`narration: ${warning}\n`));
   const brand = resolveBrand(options.brand);
-  const intro = resolveIntro(options.intro);
-  const server = await serveStage({ screens, narration: lines, brand, intro });
+  const intro = resolvePage(options.intro, "intro");
+  const outro = resolvePage(options.outro, "outro");
+  const server = await serveStage({ screens, narration: lines, brand, intro, outro });
   const port = server.address().port;
-  const query = stageQuery({ ...options, brand, intro, hasNarration: lines.length > 0 });
+  // Without clips there is nothing to wait for, so the outro plays right away.
+  const outroAtMs = screens.every((screen) => screen.clip)
+    ? await clipsEndMs(screens, DEFAULT_STAGE_TAIL_MS)
+    : 0;
+  const query = stageQuery({
+    ...options,
+    brand,
+    intro,
+    outro,
+    outroAtMs,
+    hasNarration: lines.length > 0,
+  });
   query.set("fit", "1");
   process.stdout.write(`Preview: http://127.0.0.1:${port}/stage.html?${query}\n`);
   process.stdout.write("Serving until Ctrl+C — edit stage.html and refresh.\n");
 }
 
+// When the longest clip ends, plus its tail padding, on the clips' shared clock.
+async function clipsEndMs(screens, tailPaddingMs) {
+  const probes = await Promise.all(screens.map((screen) => probeVideo(screen.clip)));
+  return Math.max(...probes.map((probe) => probe.durationMs)) + tailPaddingMs;
+}
+
 export async function composePresentation(options) {
   const screens = resolveScreens(options.screens);
   const outPath = path.resolve(options.out);
-  const probes = await Promise.all(screens.map((screen) => probeVideo(screen.clip)));
-  const tailPaddingMs = Number.isFinite(options.tailPaddingMs) ? options.tailPaddingMs : 800;
-  const waitMs = Math.max(...probes.map((probe) => probe.durationMs)) + tailPaddingMs;
+  const tailPaddingMs = Number.isFinite(options.tailPaddingMs)
+    ? options.tailPaddingMs
+    : DEFAULT_STAGE_TAIL_MS;
+  const waitMs = await clipsEndMs(screens, tailPaddingMs);
 
   const { lines, warnings } = scheduleNarration(
     loadNarration({ screens, narrationFile: options.narration }),
@@ -381,8 +422,9 @@ export async function composePresentation(options) {
   );
   warnings.forEach((warning) => process.stderr.write(`narration: ${warning}\n`));
   const brand = resolveBrand(options.brand);
-  const intro = resolveIntro(options.intro);
-  const server = await serveStage({ screens, narration: lines, brand, intro });
+  const intro = resolvePage(options.intro, "intro");
+  const outro = resolvePage(options.outro, "outro");
+  const server = await serveStage({ screens, narration: lines, brand, intro, outro });
   const port = server.address().port;
   // Always pass a header (empty if none) so a recording never falls back to
   // the stage's sample title, which is only for previewing.
@@ -390,11 +432,15 @@ export async function composePresentation(options) {
     ...options,
     brand,
     intro,
+    outro,
+    outroAtMs: waitMs,
     header: options.header ?? "",
     wordmark: options.wordmark ?? "",
     hasNarration: lines.length > 0,
   });
   const stageUrl = `http://127.0.0.1:${port}/stage.html?${query}`;
+  // The clips, then the outro (plus a moment for it to load) if there is one.
+  const stageMs = waitMs + (outro ? outro.durationMs + PAGE_LOAD_MARGIN_MS : 0);
 
   let result;
   try {
@@ -405,17 +451,20 @@ export async function composePresentation(options) {
         // An intro is the video's first frames, so it can't start while the
         // page is still being set up for recording: reload the stage once
         // capture is running, and wait out the intro (plus a moment for the
-        // reload) as well as the clips.
+        // reload) as well as the rest.
         steps: intro
           ? [
               { action: "goto", url: stageUrl },
-              { action: "wait", ms: waitMs + intro.durationMs + INTRO_LOAD_MARGIN_MS },
+              { action: "wait", ms: stageMs + intro.durationMs + PAGE_LOAD_MARGIN_MS },
             ]
-          : [{ action: "wait", ms: waitMs }],
+          : [{ action: "wait", ms: stageMs }],
       },
       out: outPath,
       width: STAGE_WIDTH,
       height: STAGE_HEIGHT,
+      // An outro usually settles on a still card, which the screencast stops
+      // sending frames for; hold it for exactly the time waited out above.
+      ...(outro && { holdLastFrame: true, tailPaddingMs: 0 }),
     });
   } finally {
     server.close();

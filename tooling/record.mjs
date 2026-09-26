@@ -1729,6 +1729,13 @@ export async function captureRecording(prepared, options = {}) {
   }
   fs.writeFileSync(clicksPath, `${clicks.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
 
+  // The screencast only sends a frame when the page repaints, so a page that
+  // has settled would otherwise end the video on its last change rather than
+  // when capture stopped.
+  if (options.holdLastFrame && frameLog.length > 0) {
+    frameLog.push({ file: frameLog[frameLog.length - 1].file, atMs: stoppedAt - state.startedAt });
+  }
+
   try {
     assembleFramesToVideo(frameLog, rawPath);
 
@@ -1772,7 +1779,10 @@ export async function captureRecording(prepared, options = {}) {
 // it. options.music names another track, or is false for none.
 export async function recordWalkthrough(options) {
   const prepared = await prepareRecording(options);
-  const result = await captureRecording(prepared);
+  const result = await captureRecording(prepared, {
+    tailPaddingMs: options.tailPaddingMs,
+    holdLastFrame: options.holdLastFrame,
+  });
   if (options.music !== false && /\.mp4$/i.test(result.out)) {
     addMusic(result.out, { track: typeof options.music === "string" ? options.music : undefined });
   }
