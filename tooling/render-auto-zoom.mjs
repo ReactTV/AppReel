@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Post-capture zoom: plain/zoom segments, concat, delivery fps. Behavior and authoring rules:
+// references/zoom.md#how-zoom-is-rendered — keep code and that section in sync.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -161,7 +163,15 @@ function loadZooms(args, durationMs) {
   throw new Error("need --zooms or --clicks");
 }
 
-function buildSegments(suggestions, durationMs, timing = {}) {
+function frameAlignMs(ms, fps) {
+  if (!Number.isFinite(fps) || fps <= 0) {
+    return ms;
+  }
+  const period = 1000 / fps;
+  return Math.round(ms / period) * period;
+}
+
+function buildSegments(suggestions, durationMs, timing = {}, fps = 60) {
   const zoomInMs = timing.zoomInMs ?? ZOOM_IN_MS;
   const zoomOutMs = timing.zoomOutMs ?? ZOOM_OUT_MS;
   const glideGapMs = timing.glideGapMs ?? ZOOM_GLIDE_GAP_MS;
@@ -169,8 +179,8 @@ function buildSegments(suggestions, durationMs, timing = {}) {
   const segments = [];
   let cursor = 0;
   for (const region of suggestions) {
-    const start = clampTime(region.start, durationMs);
-    const end = clampTime(region.end, durationMs);
+    const start = frameAlignMs(clampTime(region.start, durationMs), fps);
+    const end = frameAlignMs(clampTime(region.end, durationMs), fps);
     if (end <= start) {
       continue;
     }
@@ -268,13 +278,22 @@ function zoomFilter(segment, width, height, fps, timing = {}) {
   const delta = (scale - 1).toFixed(4);
   const cx = focusExpression(segment, "cx", fps);
   const cy = focusExpression(segment, "cy", fps);
+  // Zoom-in uses ease-out (1 - (1-t)^2), not cosine: cosine ease-in-out starts
+  // with zero velocity and the first ~8 frames barely change scale, which reads
+  // as dropped frames then a sudden rush. Zoom-out keeps cosine ease-in.
   const z =
     `if(lt(on,${inFrames}),` +
-    `1+${delta}*(0.5-0.5*cos(PI*on/${inFrames})),` +
+    `1+${delta}*(1-pow(1-on/${inFrames},2)),` +
     `if(lt(on,${holdUntil}),${scale},` +
     `1+${delta}*(0.5-0.5*cos(PI*(${totalFrames}-on)/${outFrames}))))`;
-  const x = `max(0,min(iw-iw/zoom,(${cx})*iw-iw/zoom/2))`;
-  const y = `max(0,min(ih-ih/zoom,(${cy})*ih-ih/zoom/2))`;
+  // The centre travels from the frame's middle to the focus in step with the
+  // crop shrinking (linear in 1-1/zoom), which keeps it exactly as far off
+  // centre as a crop of that size can sit. Jumping straight to the focus
+  // instead pins an off-centre crop against the frame edge early in the ramp
+  // and lets go of it partway through: a visible kink in the motion.
+  const progress = `(1-1/zoom)/${(1 - 1 / scale).toFixed(6)}`;
+  const x = `max(0,min(iw-iw/zoom,(0.5+((${cx})-0.5)*${progress})*iw-iw/zoom/2))`;
+  const y = `max(0,min(ih-ih/zoom,(0.5+((${cy})-0.5)*${progress})*ih-ih/zoom/2))`;
   // format=yuv444p (not yuv420p): the intermediate format station is where
   // chroma actually gets subsampled — doing it here, before the encoder,
   // throws away color resolution the final -pix_fmt can't recover later.
@@ -287,8 +306,11 @@ function zoomFilter(segment, width, height, fps, timing = {}) {
   );
 }
 
-function plainFilter(segment) {
-  return `trim=${sec(segment.start)}:${sec(segment.end)},setpts=PTS-STARTPTS,setsar=1,format=yuv444p`;
+function plainFilter(segment, fps) {
+  return (
+    `trim=${sec(segment.start)}:${sec(segment.end)},setpts=PTS-STARTPTS,` +
+    `setsar=1,format=yuv444p,fps=${fps}`
+  );
 }
 
 // Stamped onto every output branch below, not passed as a bare ffmpeg output
@@ -305,7 +327,7 @@ export function buildFilterComplex(suggestions, probe, timing = {}, tail = COLOR
   const width = even(probe.width);
   const height = even(probe.height);
   const fps = Math.round(probe.fps * 1000) / 1000;
-  const segments = buildSegments(suggestions, probe.durationMs, timing);
+  const segments = buildSegments(suggestions, probe.durationMs, timing, fps);
   if (segments.length === 0) {
     return {
       filter: `[0:v]setsar=1,format=yuv444p,scale=${width}:${height}:flags=lanczos,${tail}[out]`,
@@ -315,7 +337,7 @@ export function buildFilterComplex(suggestions, probe, timing = {}, tail = COLOR
   }
   if (segments.length === 1 && segments[0].kind === "plain") {
     return {
-      filter: `[0:v]${plainFilter(segments[0])},scale=${width}:${height}:flags=lanczos,${tail}[out]`,
+      filter: `[0:v]${plainFilter(segments[0], fps)},scale=${width}:${height}:flags=lanczos,${tail}[out]`,
       map: "[out]",
       segments,
     };
@@ -325,7 +347,8 @@ export function buildFilterComplex(suggestions, probe, timing = {}, tail = COLOR
   const labels = [];
   segments.forEach((segment, index) => {
     const label = `v${index}`;
-    const body = segment.kind === "zoom" ? zoomFilter(segment, width, height, fps, timing) : plainFilter(segment);
+    const body =
+      segment.kind === "zoom" ? zoomFilter(segment, width, height, fps, timing) : plainFilter(segment, fps);
     parts.push(`[0:v]${body}[${label}]`);
     labels.push(`[${label}]`);
   });

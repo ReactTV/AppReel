@@ -61,6 +61,14 @@ you bumped the npm package — nothing here runs on its own, you always trigger 
 Check with `npx @reacttv/appreel status` (or directly:
 `node .appreel/tooling/record.mjs --check-prereqs`).
 
+## Zoom and motion
+
+Zoom is applied **after** capture (not in the browser). Authoring rules, renderer behavior, the
+**first stretch** pattern after heavy UI, and troubleshooting live in
+[`tooling/references/zoom.md`](./tooling/references/zoom.md) in this repo (copied to
+`.appreel/tooling/references/zoom.md` on install/update). When a recording teaches something new
+about zoom, add it there so every consumer project stays consistent.
+
 ## Using `create-flow` / `record-flow` with your coding agent
 
 Install only copies the skill files into `.appreel/skills/` — it doesn't touch anything outside

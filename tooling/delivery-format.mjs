@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // The format every mp4 this tooling writes is encoded in, so a recording is
 // ready to post as it comes out: H.264 High, 4:2:0, limited-range BT.709,
-// progressive, 30 fps constant, `moov` atom first, and at most one audio track
+// progressive, 60 fps constant, `moov` atom first, and at most one audio track
 // (AAC-LC, 48 kHz stereo: the house music, added by music.mjs). 4:4:4 H.264 and full-range tagging, which the recorder
 // used before, don't decode in most browsers, phones or hardware players.
 // Only the internal frame capture (record.mjs, assembleFramesToVideo) stays
@@ -10,7 +10,9 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const DELIVERY_FPS = 30;
+// 60, not 30: short UI animations (stingers, transitions) last a few hundred
+// ms, and at 30 fps they drop to a handful of frames.
+export const DELIVERY_FPS = 60;
 // H.264 level 4.2 covers 1080p at up to 60 fps.
 const DELIVERY_LEVEL = 42;
 // Keyframe every 2 seconds, closed GOPs: what streaming platforms re-encode from best.

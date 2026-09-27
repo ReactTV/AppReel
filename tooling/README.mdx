@@ -38,6 +38,15 @@ Generate a Playwright `storageState` file instead: write a one-off script follow
 `.appreel/auth/<account>.auth.json` (gitignored) — it can impersonate whatever account
 signed in.
 
+## Zoom and motion
+
+Zoom is planned in the scenario but applied **after** capture by `render-auto-zoom.mjs`. Authoring
+rules, renderer behavior (easing, frame-aligned cuts, 60 fps delivery), the **first stretch**
+pattern after heavy UI, and a troubleshooting table live in one place:
+[`references/zoom.md`](./references/zoom.md). When a recording teaches something new about zoom,
+add it there — not in a flow README or skill — so every project that vendors AppReel stays
+consistent.
+
 ## 2. Write a scenario
 
 A JSON file describing the start URL and every step, in order. See
@@ -197,7 +206,7 @@ const recorded = await Promise.all(prepared.map((p) => captureRecording(p, { syn
 Every mp4 the recorder writes is a finished, postable video — there is no separate export step:
 
 - H.264 High level 4.2, 4:2:0, limited-range BT.709, progressive
-- 30 fps constant, a keyframe every 2s with closed GOPs, `moov` atom first (plays while downloading)
+- 60 fps constant, a keyframe every 2s with closed GOPs, `moov` atom first (plays while downloading)
 - audio: the recorder's own clips are silent, and every finished video carries one AAC track,
   48 kHz stereo: the house music (see [Music](#music))
 - a side-by-side presentation is exactly 1920x1080 (16:9). A single-screen recording keeps its

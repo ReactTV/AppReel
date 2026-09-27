@@ -99,8 +99,11 @@ A combination key is rendered as key symbols rather than Playwright's syntax:
 
 ## Zoom
 
-All zoom and glide rules, options and defaults live in [`zoom.md`](./zoom.md). The `zoom` effect
-above only turns them on or off for a scenario.
+All zoom and glide rules, options and defaults live in [`zoom.md`](./zoom.md), including
+[how zoom is rendered](./zoom.md#how-zoom-is-rendered) (capture vs post-process), the
+[first-stretch](./zoom.md#the-first-stretch) pattern, and
+[troubleshooting](./zoom.md#when-zoom-looks-wrong). The `zoom` effect above only turns them on
+or off for a scenario.
 
 ## Pacing
 

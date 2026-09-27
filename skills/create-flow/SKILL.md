@@ -26,6 +26,7 @@ file):
 |---|---|
 | A **1920x1080** desktop viewport (phone scenarios excepted), so every zoom focus is calibrated | [`zoom.md`](../../tooling/references/zoom.md) |
 | **Steady zoom**: one crop per screen area, no in-and-out pumping, a glide only between areas too far apart for one crop | [`zoom.md`](../../tooling/references/zoom.md) |
+| **Smooth first zoom** after heavy UI: settle wait, optional longer `zoomInMs`; renderer rules in [`zoom.md#how-zoom-is-rendered`](../../tooling/references/zoom.md#how-zoom-is-rendered) and [`zoom.md#the-first-stretch`](../../tooling/references/zoom.md#the-first-stretch) | [`zoom.md`](../../tooling/references/zoom.md) |
 | **Narration** under the screens (multi-screen flows only): a yellow line per beat; an auto-numbered "Step N" header over the setup; a white "See it in action" section for the demonstration; a yellow payoff line at the end | [`narration.md`](../../tooling/references/narration.md) |
 | A **glow** on the screen each line is about, moving between screens as the story does | [`narration.md`](../../tooling/references/narration.md#focus) |
 | Quiet **background music**, added automatically | [tooling README](../../tooling/README.mdx#music) |

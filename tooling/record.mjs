@@ -25,6 +25,12 @@ export const CLICK_ZOOM_OUT_MS = 600;
 export const CLICK_MOVE_MS = 300;
 export const CLICK_PRE_CLICK_MS = 300;
 export const CAPTURE_OUTPUT_FPS = 60;
+
+/** Aligns a capture timestamp to a video frame so plain/zoom cuts do not hitch. */
+export function frameAlignCaptureMs(ms) {
+  const period = 1000 / CAPTURE_OUTPUT_FPS;
+  return Math.round(ms / period) * period;
+}
 export const DEFAULT_TAIL_PADDING_MS = 5000;
 // "step" (the default) is a line the viewer follows; "aside" is supporting
 // context. See references/narration.md.
@@ -1349,7 +1355,7 @@ export async function runScenario(page, scenario, log, state) {
         state.activeZoomFocus = stepFocus;
       }
       if (!skipZoomIn) {
-        zoomStartT = Date.now() - state.startedAt;
+        zoomStartT = frameAlignCaptureMs(Date.now() - state.startedAt);
         state.activeZoomStartT = zoomStartT;
         // Like the focus, a stretch's zoom level is set by the step that
         // starts it; the steps it holds through inherit it.

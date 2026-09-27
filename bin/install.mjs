@@ -138,6 +138,11 @@ Everything AppReel needs to script and produce walkthrough videos of this app.
 Start with \`/create-flow\` to script a new video, \`/record-flow\` to re-render an existing one.
 Read [\`tooling/README.mdx\`](./tooling/README.mdx) for how the recorder itself works.
 
+**Consistent zoom across flows:** scenario planning and post-render behavior are documented in
+[\`tooling/references/zoom.md\`](./tooling/references/zoom.md) (stretch planning, first zoom after
+heavy UI, renderer pipeline, troubleshooting). Flow READMEs only record *this* video's zoom plan,
+not the general rules.
+
 ## Keeping this up to date
 
 This folder was copied in by \`npx @reacttv/appreel\`, not installed as a runtime dependency, so

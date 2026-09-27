@@ -6,7 +6,8 @@ When a run teaches something new about zoom, add it here, not to a skill, a flow
 plan (which stretches, which foci), never the general rules.
 
 Zoom is planned from the page layout before the first run, not tuned after it: [the model](#the-model),
-[the rules](#rules), [the procedure](#procedure), then the [options and defaults](#reference-options-and-defaults)
+[the rules](#rules), [how zoom is rendered](#how-zoom-is-rendered), [the first stretch](#the-first-stretch),
+[the procedure](#procedure), then the [options and defaults](#reference-options-and-defaults)
 the rules are built from.
 
 ## The model
@@ -28,6 +29,8 @@ the rules are built from.
   Plan in stretches, not clicks.
 - Every zoom-in and zoom-out costs ~0.6s. Out-then-in between two stretches is 1.2s of the viewer
   looking at the whole page, and reads as pumping when both stretches are in the same area.
+  Zoom-in eases out (motion starts right away); zoom-out eases in with cosine. Cosine on both
+  sides made the first frames of a zoom-in look frozen.
 - A **glide** is what the renderer does when two stretches are less than 1s apart: the crop slides
   from one focus to the next instead of zooming out and in. It is a fallback for moving between
   *different* areas, not a tool for staying in one. The slide starts a beat (400ms) after the click
@@ -92,10 +95,104 @@ recurring UI:
 
 | Layout | Focus | Frames |
 |---|---|---|
+| Add content modal (Paste a link through Add to Queue) | `0.5, 0.2` | Centered modal on a 1920×1080 Broadcast Center page |
 | *(e.g. a settings modal that always centers itself)* | `0.5, 0.5` | *(the whole modal)* |
 
 A stretch inside a centered dialog or modal frames the dialog itself when it fits the crop, rather
 than the center of the targets in it.
+
+## How zoom is rendered
+
+Zoom is **not** applied in the browser during capture. Playwright records a full-viewport screencast
+at **60 fps** (`record.mjs` → `assembleFramesToVideo`). After capture, `render-auto-zoom.mjs` cuts
+the clip into **plain** stretches (no crop) and **zoom** stretches (crop + pan), then **concat**s
+them. Delivery is **60 fps** H.264 (`delivery-format.mjs`); do not cap at 30 fps — short UI motion
+(stingers, transitions) needs the headroom.
+
+### Recorder timing (`holdZoomAfter`)
+
+On a step that starts a planned stretch (`holdZoomAfter: true` + `zoomFocus`):
+
+1. **`zoomStartT`** is logged at the **start** of the step, aligned to a capture frame
+   (`frameAlignCaptureMs` in `record.mjs`).
+2. The recorder then **`sleep`s `zoomInMs`** (default 600 ms) before moving the cursor — that time
+   is baked into the clip so the rendered zoom-in lines up with real time in the video.
+3. Middle steps inherit the hold; **`releaseZoomHold: true`** on the last step schedules zoom-out
+   (`zoomEndT`) and sleeps `zoomOutMs` before the next step.
+
+Scenario-level **`zoomInMs` / `zoomOutMs`** override the defaults for every stretch in that file.
+Use a longer `zoomInMs` (750–900 ms) when a stretch uses a high `zoomScale` (above ~2) or follows
+heavy UI motion (see [the first stretch](#the-first-stretch)).
+
+### Renderer behavior (`render-auto-zoom.mjs`)
+
+These rules are implemented in code; change them here in the doc when the code changes:
+
+| Behavior | Why |
+| --- | --- |
+| **Zoom-in easing** is ease-out quadratic, not cosine | Cosine ease-in-out starts at zero velocity; the first frames barely move and look like dropped frames, then the zoom rushes. |
+| **Crop center** moves with zoom level toward `zoomFocus` | If the focus is off-center, jumping the crop to that focus at `z=1` pins the crop on the frame edge early, then releases — a visible kink. Center tracks `(1 - 1/zoom)` so the focus is reached only at full scale. |
+| **Cut times** are aligned to frame boundaries | `zoomStartT` / region `start` / `end` are rounded to the clip fps before plain/zoom segments are trimmed, so the first plain→zoom join does not skip or duplicate a frame. |
+| **Plain segments** use the same **`fps=`** as zoom segments before concat | Avoids a frame-rate mismatch at segment joins. |
+| **Zoom-out** still uses cosine ease-in | Gentle landing at full frame. |
+
+Constants (`ZOOM_IN_MS`, `ZOOM_GLIDE_GAP_MS`, etc.) live in `render-auto-zoom.mjs`; this doc names
+the behavior, not every constant.
+
+### Presentation vs screen clips
+
+Side-by-side videos are built in two passes: each screen is recorded and zoom-rendered, then
+`composePresentation()` plays those mp4s inside `stage.html` and **screencasts the stage** again.
+If motion looks wrong **only** on `-presentation.mp4` but fine on `-desktop.mp4` (or `-mobile.mp4`),
+the hitch is in stage compositing (embedded video + browser capture), not in the zoom plan. Tune the
+screen clip first; see [When zoom looks wrong](#when-zoom-looks-wrong).
+
+## The first stretch
+
+The **first** zoom stretch in a clip (plain → zoom) is the one viewers notice most:
+
+- It is the only join from “no crop” to cropped video; later stretches follow a full zoom-out and
+  a longer hold at full frame, so small hitches are easier to miss.
+- It often follows **heavy UI** (double-click to stage a CAM, route change, large preview repaint)
+  while the page is still settling.
+
+**Authoring pattern** (scenario JSON, not renderer defaults):
+
+1. After the heavy action, use a **longer `pause`** on that step or a dedicated **`wait`** (≈500 ms)
+   so previews, borders, and embeds stabilize before the first `holdZoomAfter`.
+2. Keep **`"zoom": false`** on large tiles (rule 7); start the stretch on the **small** control
+   (popover, field, sidebar button).
+3. **`releaseZoomHold`** on the last step of the stretch **before** a long `wait` or an unzoomed
+   action (e.g. Take to program with `"zoom": false`) so zoom-out finishes before the beat that
+   should be full-frame.
+4. For **`zoomScale` ≥ 2**, set scenario **`zoomInMs`** to **750–900** and measure the union of
+   the control bar + popover + list (see rule 2).
+
+Example shape (from `switch-cams-with-stingers`):
+
+```json
+{ "action": "dblclick", "…", "zoom": false, "pause": 2200 },
+{ "action": "wait", "ms": 500 },
+{
+  "action": "click", "name": "Stinger settings",
+  "holdZoomAfter": true, "zoomFocus": { "cx": 0.64, "cy": 0.72 }, "zoomScale": 2.25
+},
+…
+{ "action": "click", "name": "Iris", "releaseZoomHold": true },
+{ "action": "press", "keys": "Escape", "pause": 400 },
+{ "action": "click", "name": "Take staging to program", "zoom": false }
+```
+
+## When zoom looks wrong
+
+| Symptom | Likely cause | What to do |
+| --- | --- | --- |
+| First zoom “freezes” then jumps | Was cosine ease-in (fixed in renderer); or UI still animating under a plain stretch | Re-record with current tooling; add [settle wait](#the-first-stretch); raise `zoomInMs` |
+| One or two “dropped” frames at first zoom only | Plain/zoom join off a frame boundary (mitigated by frame alignment) | Re-record; if it persists on `-desktop.mp4` only, check `artifacts/*.zooms.json` start times |
+| Kink while zooming to bottom-right (or any edge) | Off-center focus without center-tracking (fixed in renderer) | Re-render or re-record; remeasure focus union |
+| Stingers / short animations look choppy | Delivery or clip was 30 fps | Use current `delivery-format.mjs` (60 fps); re-record |
+| Bad on presentation, fine on desktop clip | Second screencast of embedded video | Fix desktop clip first; presentation is a separate pass |
+| Pumping between nearby clicks | Two stretches where one crop would fit | Merge per rule 2; or glide if areas differ |
 
 ## Procedure
 
@@ -175,6 +272,8 @@ these are real lessons from doing that:
 | The glide into a modal started before the click that opened it was visible | the renderer starts every glide 400ms after the click (`ZOOM_GLIDE_HOLD_MS`), not at it |
 | A 5s pause between typing a value and the page reacting to it | the recorder looked ahead for a button that only appears once the value is valid; it no longer looks ahead inside a held stretch |
 | A modal at 1440x810 cropped itself and the sidebar together | the scenario moved to 1920x1080, where a fixed `0.5, 0.2` frames it (rule 8) |
+| First zoom into a control bar felt like dropped frames | renderer: ease-out zoom-in + frame-aligned cuts + plain `fps=`; flow: settle `wait` after staging, `releaseZoomHold` before Take, `zoomInMs` 900 |
+| Zoom-in “lag” with focus low on screen | renderer: crop center tracks zoom level toward focus; scenario: one stretch for stinger popover + list at `zoomScale` 2.25 |
 
 Both merges were rule 2: the union of targets fit in one crop, so there was nothing to glide
 between. The one glide left, from the Add Source menu (bottom left) into its dialog, is rule 3: the

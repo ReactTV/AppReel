@@ -24,6 +24,8 @@ If the user named one, use it. Otherwise list `.appreel/flows/` and ask which.
 Read the flow's `README.md` — its **Needs** section says what must be true before recording
 (dev server, which auth session, required app state). Confirm each:
 
+If zoom motion looks wrong after a run, use [`tooling/references/zoom.md`](../../tooling/references/zoom.md#when-zoom-looks-wrong) before changing scenario timing at random.
+
 - The dev server it names is answering (usually already running).
 - Any listed `.appreel/auth/<account>.auth.json` exists. If it's missing or the run later
   fails to sign in, the session needs regenerating — that's a `create-flow` task
@@ -51,7 +53,7 @@ If the user wants to keep the last take, copy it out first.
 Give the user the path(s) under `.appreel/flows/<name>/.output/`. The finished video is
 `<name>-presentation.mp4` for a staged (one or more screens through the presentation stage) flow,
 or `<name>.mp4` for a raw single-screen one. Both are already in the postable format (H.264,
-30 fps, plays everywhere; a staged presentation is 1920x1080) and carry the house music, so no
+60 fps, plays everywhere; a staged presentation is 1920x1080) and carry the house music, so no
 export step is needed. The other clips (one per screen, e.g. `-desktop`, `-mobile`) and the
 `artifacts/` subfolder (`*.clicks.jsonl`, `*.zooms.json`, `*.narration.json`) are intermediates.
 
