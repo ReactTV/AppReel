@@ -1258,12 +1258,33 @@ async function scrollToTarget(page, target) {
   return target.boundingBox();
 }
 
+// What a step is about, for the step log: its caption, else its locator.
+function stepLabel(step) {
+  return step.caption ?? step.name ?? step.text ?? step.label ?? step.selector ?? step.keys ?? step.url;
+}
+
 export async function runScenario(page, scenario, log, state) {
   const steps = scenario.steps ?? [];
   const effects = state.effects ?? EFFECT_DEFAULTS;
+  // Every step's start and end, including unzoomed clicks and waits the click
+  // log never sees, so pacing.mjs can find dead air and rushed steps.
+  const closeStepLog = () => {
+    const last = state.steps?.at(-1);
+    if (last && last.end === undefined) {
+      last.end = Date.now() - state.startedAt;
+    }
+  };
   for (let index = 0; index < steps.length; index += 1) {
     const step = steps[index];
     const action = resolveAction(step);
+    closeStepLog();
+    state.steps?.push({
+      i: index,
+      action,
+      t: Date.now() - state.startedAt,
+      ...(stepLabel(step) !== undefined ? { label: String(stepLabel(step)) } : {}),
+      ...(step.zoom === false ? { zoom: false } : {}),
+    });
     // Logged before anything else the step does, so the line leads the action.
     if (typeof step.narration === "string") {
       state.narration?.push({
@@ -1608,6 +1629,7 @@ export async function runScenario(page, scenario, log, state) {
     await syncCursor(page, state);
     await setPointerIcon(page, state, null);
   }
+  closeStepLog();
 }
 
 // A navigation or a framework re-render can drop the host, so the overlay is
@@ -1732,6 +1754,7 @@ export async function prepareRecording(options) {
     zoomScale: scenario.zoomScale,
     zoomHeld: false,
     narration: [],
+    steps: [],
     activeZoomStartT: undefined,
     activeZoomFocus: undefined,
     activeZoomScale: undefined,
@@ -1852,6 +1875,7 @@ export async function captureRecording(prepared, options = {}) {
   const clicksPath = `${artifactStem}.clicks.jsonl`;
   const zoomsPath = `${artifactStem}.zooms.json`;
   const narrationPath = `${artifactStem}.narration.json`;
+  const stepsPath = `${artifactStem}.steps.jsonl`;
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.mkdirSync(path.dirname(artifactStem), { recursive: true });
   // The presentation reads this file by name, so an old one must not outlive
@@ -1861,6 +1885,7 @@ export async function captureRecording(prepared, options = {}) {
     fs.writeFileSync(narrationPath, `${JSON.stringify(state.narration, null, 2)}\n`);
   }
   fs.writeFileSync(clicksPath, `${clicks.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+  fs.writeFileSync(stepsPath, `${state.steps.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
 
   // The screencast only sends a frame when the page repaints, so a page that
   // has settled would otherwise end the video on its last change rather than
@@ -1897,6 +1922,7 @@ export async function captureRecording(prepared, options = {}) {
       clicks: clicksPath,
       zooms: zoomsPath,
       narration: state.narration.length > 0 ? narrationPath : null,
+      steps: stepsPath,
       status: zoomDoc.status,
       samples: parseSamples(fs.readFileSync(clicksPath, "utf8")),
       suggestions: zoomDoc.suggestions,

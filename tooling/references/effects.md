@@ -138,6 +138,28 @@ measure the gap in the click log before deciding how much to cut.
 In a side-by-side flow any pacing change shifts the later beats, so recheck the sync waits
 ([`zoom.md`](./zoom.md#procedure), step 5).
 
+### Checking pacing
+
+After a run, read the clip's logs back:
+
+```bash
+node .appreel/tooling/pacing.mjs .appreel/flows/<name>/.output
+```
+
+It reports, per clip, with the step it happened on:
+
+| Finding | Means | Threshold |
+| --- | --- | --- |
+| rushed exit | the cursor leaves a click before its result shows | under 150ms from click to the next move |
+| jump | the cursor reaches its target too fast to follow | under 500ms from setting off to the click |
+| zoom pump | the camera zooms out and straight back in | 1 to 2.5s between two zoom regions |
+| dead air | nothing moves and no new line appears | over 2.5s of `wait`/`waitFor`/`press` with no narration line starting |
+
+A finding is a prompt to look at the video there, not an order: a wait for a page to load or a URL
+to resolve can be dead air the viewer needs, and a deliberate full-frame beat can be longer. Fix
+the ones that look wrong on the video, and give the pause that means something a narration line.
+Dead air needs the `.steps.jsonl` log, which runs recorded before 0.1.9 don't have.
+
 ## The `press` step
 
 ```json

@@ -55,7 +55,7 @@ Give the user the path(s) under `.appreel/flows/<name>/.output/`. The finished v
 or `<name>.mp4` for a raw single-screen one. Both are already in the postable format (H.264,
 60 fps, plays everywhere; a staged presentation is 1920x1080) and carry the house music, so no
 export step is needed. The other clips (one per screen, e.g. `-desktop`, `-mobile`) and the
-`artifacts/` subfolder (`*.clicks.jsonl`, `*.zooms.json`, `*.narration.json`) are intermediates.
+`artifacts/` subfolder (`*.clicks.jsonl`, `*.steps.jsonl`, `*.zooms.json`, `*.narration.json`) are intermediates.
 
 If compositing printed `narration:` warnings, pass them on: each means a narration line had to be
 pushed later than its step, or ran out of time at the end. Fixing one is a `create-flow` task (it
