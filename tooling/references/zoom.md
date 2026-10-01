@@ -32,10 +32,11 @@ the rules are built from.
   Zoom-in eases out (motion starts right away); zoom-out eases in with cosine. Cosine on both
   sides made the first frames of a zoom-in look frozen.
 - A **glide** is what the renderer does when two stretches are less than 1s apart: the crop slides
-  from one focus to the next instead of zooming out and in. It is a fallback for moving between
-  *different* areas, not a tool for staying in one. The slide starts a beat (400ms) after the click
-  that ends the first stretch, so the order the viewer sees is: zoom in, cursor arrives, click,
-  then the view moves.
+  from one focus to the next, and eases from one zoom level to the next, instead of zooming out and
+  in. It is a fallback for moving between *different* areas, not a tool for staying in one. The
+  slide starts a beat (400ms) after the click that ends the first stretch, so the order the viewer
+  sees is: zoom in, cursor arrives, click, then the view moves. Chaining stretches this way (sidebar
+  → the page it opens → a dialog) reads as one continuous camera move.
 
 ## Rules
 
@@ -59,7 +60,10 @@ the rules are built from.
    Never leave a gap of 1 to ~3s between two stretches in the same area. If they fit in one crop,
    rule 2 already says to merge them.
 4. **The focus goes on the first step only.** First step: `holdZoomAfter: true` and `zoomFocus`.
-   Middle steps: neither, they inherit. Last step: `releaseZoomHold: true`. A different `zoomFocus`
+   Middle steps: neither, they inherit. Last step: `releaseZoomHold: true`. Only a pointer step
+   (`click`, `type`, …) can start a stretch: `waitFor` ignores every zoom option. Only a pointer
+   step or a `wait` can end one: `press` and `drag` ignore `releaseZoomHold`, so to end a stretch
+   after a keypress or drag, put the release on a `wait` after it. A different `zoomFocus`
    mid-stretch is a new stretch, so make it one deliberately or don't. The only link between a focus
    and its step's own target is that the target must sit inside the crop (at least ~0.03 from the
    crop edge), or the cursor arrives off screen. Older flows repeat `holdZoomAfter` and `zoomFocus` on
@@ -67,6 +71,11 @@ the rules are built from.
 5. **Don't hold across waiting.** Release before a wait longer than ~2.5s (a load, a process, "watch
    the other screen") and start a new stretch after it. A click that only triggers something you
    watch elsewhere takes `"zoom": false`.
+   **Every click must land inside the crop.** A `"zoom": false` click inside a held stretch is still
+   shown through that stretch's crop, and a release on the click itself only zooms out *after* it.
+   When a click sits outside the stretch's crop (a Save button in a far corner of a full-screen
+   modal), release on a `wait` just before it so the zoom-out finishes first and the click is on
+   screen at full frame.
 6. **Planned stretches don't use auto-continuity.** [Auto-merge](#auto-continuity) joins clicks by
    pointer distance and its focus follows the pointer, so the union isn't guaranteed to fit. It is
    what a scenario with no hold options gets, which makes it the right draft run. Once a stretch has
@@ -95,7 +104,7 @@ recurring UI:
 
 | Layout | Focus | Frames |
 |---|---|---|
-| Add content modal (Paste a link through Add to Queue) | `0.5, 0.2` | Centered modal on a 1920×1080 Broadcast Center page |
+| *(e.g. a full-screen picker modal with a column on each side)* | `0.5, 0.385` at `zoomScale` 1.28 | *(both side columns whole, held through the save click in one of them)* |
 | *(e.g. a settings modal that always centers itself)* | `0.5, 0.5` | *(the whole modal)* |
 
 A stretch inside a centered dialog or modal frames the dialog itself when it fits the crop, rather
@@ -135,6 +144,7 @@ These rules are implemented in code; change them here in the doc when the code c
 | **Cut times** are aligned to frame boundaries | `zoomStartT` / region `start` / `end` are rounded to the clip fps before plain/zoom segments are trimmed, so the first plain→zoom join does not skip or duplicate a frame. |
 | **Plain segments** use the same **`fps=`** as zoom segments before concat | Avoids a frame-rate mismatch at segment joins. |
 | **Zoom-out** still uses cosine ease-in | Gentle landing at full frame. |
+| **Glides change zoom level too**, easing the crop size (`1/zoom`) alongside the focus | Regions at different levels used to zoom fully out and straight back in when under 1s apart: a sub-second pump. Easing the crop size, not the factor, keeps the frame edges moving evenly. |
 
 Constants (`ZOOM_IN_MS`, `ZOOM_GLIDE_GAP_MS`, etc.) live in `render-auto-zoom.mjs`; this doc names
 the behavior, not every constant.
@@ -193,6 +203,10 @@ Example shape (from `switch-cams-with-stingers`):
 | Stingers / short animations look choppy | Delivery or clip was 30 fps | Use current `delivery-format.mjs` (60 fps); re-record |
 | Bad on presentation, fine on desktop clip | Second screencast of embedded video | Fix desktop clip first; presentation is a separate pass |
 | Pumping between nearby clicks | Two stretches where one crop would fit | Merge per rule 2; or glide if areas differ |
+| Fast zoom out-then-in between two stretches | Gap between regions of 1 to ~2s (under 1s now always glides, whatever the levels) | Close the gap under 1s so it glides, or open it past ~2.5s so the full frame reads as a deliberate beat |
+| A stretch follows the pointer instead of its `zoomFocus` | The focus was on a `waitFor` (ignored) | Move `holdZoomAfter`/`zoomFocus` to the first click (rule 4) |
+| A click happens off screen | Target outside the held crop | Release on a `wait` before it (rule 5) |
+| A one-click stretch took over the next stretch (its scale, the next one's focus) | A lone click logs no end, so the region builder merges the next click within `zoomMergeDist` into it | Give the click `holdZoomAfter` and put `releaseZoomHold` on a `wait` (even `ms: 0`) right after it |
 
 ## Procedure
 
@@ -289,7 +303,7 @@ else is here.
 | `holdZoomAfter: true` | step | Keep the crop after this click instead of zooming out |
 | `releaseZoomHold: true` | step | Zoom out after this step. Works whether or not a hold is active |
 | `zoomFocus: { cx, cy }` | step | Frame this point instead of following the pointer. Stays active until the hold is released |
-| `zoomScale` | step or scenario | Zoom level, above 1 up to 4 (default 1.5). On a step, it sets the stretch that step starts, and the steps it holds through inherit it; on the scenario, it is the default for every stretch. Regions at different levels never glide into each other: the first zooms out before the next zooms in |
+| `zoomScale` | step or scenario | Zoom level, above 1 up to 4 (default 1.5). On a step, it sets the stretch that step starts, and the steps it holds through inherit it; on the scenario, it is the default for every stretch. A glide between regions at different levels eases between them |
 | `zoom: false` | step | No zoom for this click at all |
 | `zoomBreak: true` / `zoomContinuity: false` | step | Stop [auto-merge](#auto-continuity) joining this click to the next. Does **not** release a hold |
 | `zoomInMs` / `zoomOutMs` | step or scenario | Zoom-in / zoom-out duration (default 600) |
@@ -319,7 +333,7 @@ renders one region either way. Spatial merging also applies when re-rendering an
 ### Gliding
 
 When one zoom region ends less than **1 second** before the next begins, the renderer stays zoomed
-and slides the crop from the first region's focus to the next one's, over about as long as the
+and slides the crop from the first region's focus and zoom level to the next one's, over about as long as the
 zoom-out plus zoom-in it replaces, and done by the time the next region would have been fully in.
 It starts `ZOOM_GLIDE_HOLD_MS` (400ms) after the previous region's last click rather than at it:
 frames reach the video a few hundred ms after the click that made them, so a slide timed to the

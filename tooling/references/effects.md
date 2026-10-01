@@ -49,8 +49,16 @@ sites.
 Captions are drawn on the page itself, and this repo keeps them off. The text a viewer reads is the
 presentation's [narration](./narration.md) instead, so nothing below is needed for a normal flow.
 
-Every interaction step is captioned: `click`, `dblclick`, `type`, `select`
-and `press`. `wait` and `goto` are not. The caption holds for the whole step,
+Every interaction step is captioned: `click`, `dblclick`, `type`, `select`,
+`press`, and `drag`. `wait` and `goto` are not.
+
+A `drag` step uses the same locators as a click (`selector`, `role`, `text`, or
+`label`), optional `nth` (default first match), and `deltaX` / `deltaY` in CSS
+pixels from the target center. The drawn cursor moves with the dragged element,
+eased like any pointer move, over `dragDurationMs` (default 450); `dragSteps`
+(default one move per ~16ms of that) sets how many pointer moves it takes. Use `"nth"` or
+`"last": true` when several elements match. Set `"zoom": false` when the
+gesture should not trigger zoom (a resize handle the viewer already sees at full frame, say). The caption holds for the whole step,
 so an instant keypress still stays on screen long enough to read. It appears
 once the pointer reaches the target, before the click, and a step that loads
 another page removes it then, rather than leaving it over the page it lands on.

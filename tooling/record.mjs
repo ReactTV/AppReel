@@ -23,6 +23,8 @@ export const POST_CLICK_MS = 2500;
 export const CLICK_ZOOM_IN_MS = 600;
 export const CLICK_ZOOM_OUT_MS = 600;
 export const CLICK_MOVE_MS = 300;
+/** How long a drag takes from press to release when a step doesn't say. */
+export const DRAG_MOVE_MS = 450;
 export const CLICK_PRE_CLICK_MS = 300;
 export const CAPTURE_OUTPUT_FPS = 60;
 
@@ -944,6 +946,9 @@ function locatorFor(page, step) {
     if (step.exact) {
       options.exact = true;
     }
+    if (Number.isFinite(step.level)) {
+      options.level = step.level;
+    }
     return page.getByRole(step.role, options);
   }
   if (step.text) {
@@ -1128,7 +1133,7 @@ function resolveLoggedZoomFocus(step, state, pointerCx, pointerCy) {
 
 async function animateMove(page, state, x, y, options = {}) {
   const hover = options.hover ?? true;
-  const steps = state.moveSteps ?? 18;
+  const steps = options.steps ?? state.moveSteps ?? 18;
   const durationMs = options.durationMs ?? state.moveDurationMs ?? CLICK_MOVE_MS;
   const stepSleep = durationMs / steps;
   const fromX = state.x;
@@ -1263,22 +1268,54 @@ export async function runScenario(page, scenario, log, state) {
       });
     }
     if (action === "wait") {
+      if (step.releaseZoomHold === true && state.zoomHeld) {
+        const zoomOutMs = resolveStepTiming(step, state, "zoomOutMs", CLICK_ZOOM_OUT_MS);
+        const zoomEndT = Date.now() - state.startedAt + zoomOutMs;
+        if (state.lastClickLogEntry) {
+          state.lastClickLogEntry.zoomEndT = zoomEndT;
+          state.lastClickLogEntry.holdZoom = false;
+        }
+        await sleep(zoomOutMs);
+        state.zoomHeld = false;
+        state.activeZoomStartT = undefined;
+        state.activeZoomFocus = undefined;
+        state.activeZoomScale = undefined;
+      }
       await sleep(Number(step.ms ?? step.wait ?? 0));
       continue;
     }
     if (action === "waitFor") {
       const waitLocator = locatorFor(page, step);
+      const waitTarget = step.last
+        ? waitLocator.last()
+        : Number.isFinite(step.nth)
+          ? waitLocator.nth(step.nth)
+          : waitLocator.first();
       const timeout = Number.isFinite(step.timeout) ? step.timeout : 15_000;
-      await waitLocator.first().waitFor({ state: "visible", timeout });
+      if (step.optional) {
+        try {
+          await waitTarget.waitFor({ state: "visible", timeout });
+        } catch {
+          continue;
+        }
+      } else {
+        try {
+          await waitTarget.waitFor({ state: "visible", timeout });
+        } catch (error) {
+          throw new Error(
+            `waitFor timed out at step ${index + 1}/${steps.length}: ${JSON.stringify(step)} — ${error.message}`,
+          );
+        }
+      }
       if (step.enabled === true) {
         const deadline = Date.now() + timeout;
         while (Date.now() < deadline) {
-          if (await waitLocator.first().isEnabled()) {
+          if (await waitTarget.isEnabled()) {
             break;
           }
           await sleep(50);
         }
-        if (!(await waitLocator.first().isEnabled())) {
+        if (!(await waitTarget.isEnabled())) {
           throw new Error(
             `waitFor step timed out waiting for enabled: ${JSON.stringify(step)}`,
           );
@@ -1304,9 +1341,79 @@ export async function runScenario(page, scenario, log, state) {
       await hideCaption(pressCaption);
       continue;
     }
+    if (action === "drag") {
+      const dragLocator = step.last
+        ? locatorFor(page, step).last()
+        : Number.isFinite(step.nth)
+          ? locatorFor(page, step).nth(step.nth)
+          : locatorFor(page, step).first();
+      await dragLocator.waitFor({ state: "visible", timeout: 15_000 });
+      const box = await scrollToTarget(page, dragLocator);
+      if (!box) {
+        throw new Error(`no bounding box for drag ${JSON.stringify(step)}`);
+      }
+      const viewport = await cssViewport(page, page.viewportSize() ?? DEFAULT_VIEWPORT);
+      const target = targetPoint(box, viewport);
+      if (!target) {
+        throw new Error(`drag target is outside the viewport: ${JSON.stringify(step)}`);
+      }
+      const deltaX = Number(step.deltaX) || 0;
+      const deltaY = Number(step.deltaY) || 0;
+      const dragDurationMs = Number.isFinite(step.dragDurationMs)
+        ? step.dragDurationMs
+        : DRAG_MOVE_MS;
+      // Enough moves for the drawn cursor to glide at the capture's 60fps.
+      const dragSteps = Number.isFinite(step.dragSteps)
+        ? step.dragSteps
+        : Math.max(12, Math.round(dragDurationMs / 16));
+      const startX = target.x;
+      const startY = target.y;
+      if (effects.cursor) {
+        await animateMove(page, state, startX, startY, { hover: true });
+        await installOverlay(page, state);
+        await syncCursor(page, state);
+      } else {
+        await page.mouse.move(startX, startY);
+      }
+      await page.mouse.down();
+      if (effects.cursor) {
+        // The drawn cursor carries what it drags, instead of waiting at the
+        // start while the element moves without it.
+        await animateMove(page, state, startX + deltaX, startY + deltaY, {
+          hover: true,
+          steps: dragSteps,
+          durationMs: dragDurationMs,
+        });
+      } else {
+        await page.mouse.move(startX + deltaX, startY + deltaY, { steps: dragSteps });
+      }
+      await page.mouse.up();
+      await sleep(resolvePauseMs(step, state));
+      continue;
+    }
     const locator = locatorFor(page, step);
-    await locator.first().waitFor({ state: "visible", timeout: 15_000 });
-    const box = await scrollToTarget(page, locator.first());
+    const targetLocator = step.last
+      ? locator.last()
+      : Number.isFinite(step.nth)
+        ? locator.nth(step.nth)
+        : locator.first();
+    const stepTimeout = Number.isFinite(step.timeout) ? step.timeout : 15_000;
+    if (step.optional) {
+      try {
+        await targetLocator.waitFor({ state: "visible", timeout: stepTimeout });
+      } catch {
+        continue;
+      }
+    } else {
+      try {
+        await targetLocator.waitFor({ state: "visible", timeout: stepTimeout });
+      } catch (error) {
+        throw new Error(
+          `step ${index + 1}/${steps.length} timed out: ${JSON.stringify(step)} — ${error.message}`,
+        );
+      }
+    }
+    const box = await scrollToTarget(page, targetLocator);
     if (!box) {
       throw new Error(`no bounding box for ${JSON.stringify(step)}`);
     }
@@ -1437,6 +1544,9 @@ export async function runScenario(page, scenario, log, state) {
         holdZoom:
           effectiveHoldZoom ||
           (state.zoomHeld && step.releaseZoomHold === true),
+        ...(typeof step.clickMarker === "string" && step.clickMarker.length > 0
+          ? { marker: step.clickMarker }
+          : {}),
       };
       if (step.releaseZoomHold === true && state.zoomHeld) {
         clickLogEntry.zoomEndT = clickTimeMs + zoomOutMs;
@@ -1458,6 +1568,16 @@ export async function runScenario(page, scenario, log, state) {
         state.activeZoomFocus = undefined;
         state.activeZoomScale = undefined;
       }
+    } else if (step.releaseZoomHold === true && state.zoomHeld) {
+      if (state.lastClickLogEntry) {
+        state.lastClickLogEntry.zoomEndT = clickTimeMs + zoomOutMs;
+        state.lastClickLogEntry.holdZoom = false;
+      }
+      await sleep(zoomOutMs);
+      state.zoomHeld = false;
+      state.activeZoomStartT = undefined;
+      state.activeZoomFocus = undefined;
+      state.activeZoomScale = undefined;
     }
     if (action === "type") {
       const typed = String(step.text ?? "");

@@ -188,9 +188,9 @@ function buildSegments(suggestions, durationMs, timing = {}, fps = 60) {
     const cy = Number(region.focus?.cy ?? 0.5);
     const scale = Number(region.scale ?? ZOOM_SCALE);
     const prev = segments.at(-1);
-    // A glide only slides the focus, so it keeps the zoom level it started
-    // at; regions at different levels zoom out and back in instead.
-    if (prev?.kind === "zoom" && start - prev.end < glideGapMs && prev.scale === scale) {
+    // A glide moves the focus and the zoom level together, one camera move.
+    // Zooming out and straight back in instead is a sub-second pump.
+    if (prev?.kind === "zoom" && start - prev.end < glideGapMs) {
       // Slide starting a beat after the previous region's last click, over no
       // longer than the zoom-out plus zoom-in it replaces, and done by the time
       // the next one would have been fully in.
@@ -200,7 +200,7 @@ function buildSegments(suggestions, durationMs, timing = {}, fps = 60) {
         Math.max(glideStart + 1, Math.min(glideStart + zoomOutMs + zoomInMs, start + zoomInMs)),
         end,
       );
-      prev.glides.push({ startMs: glideStart, endMs: glideEnd, cx, cy });
+      prev.glides.push({ startMs: glideStart, endMs: glideEnd, cx, cy, scale });
       prev.end = Math.max(prev.end, end);
       cursor = prev.end;
       continue;
@@ -210,8 +210,7 @@ function buildSegments(suggestions, durationMs, timing = {}, fps = 60) {
     }
     segments.push({
       kind: "zoom",
-      // Never before the previous segment ends: a region too close to glide
-      // into (a different zoom level) starts once that one has zoomed out.
+      // Never before the previous segment ends.
       start: Math.max(start, cursor),
       end,
       cx,
@@ -238,22 +237,19 @@ function sec(ms) {
   return (ms / 1000).toFixed(3);
 }
 
-// The crop centre along one axis as an expression of the output frame number
-// `on`: the segment's first focus, then an eased slide to each glide's focus.
-//
-// Each focus is first pulled to the nearest centre the crop can really sit at
-// (zoompan clamps the crop to the frame anyway). Sliding between the raw
-// foci instead would let one axis run into its clamp early and stop while the
-// other keeps moving, which reads as "up, then across" rather than a straight
-// line. The clamp is a no-op at the endpoints, so nothing else changes.
-function focusExpression(segment, axis, fps) {
+// The zoom level of every stop in a segment: where it starts, then each glide's.
+function segmentScales(segment) {
+  return [segment.scale, ...segment.glides.map((glide) => glide.scale ?? segment.scale)];
+}
+
+// A value as an expression of the output frame number `on`: the segment's first
+// point, then an eased slide to each glide's point.
+function glideExpression(segment, points, fps) {
   const frameAt = (ms) => Math.max(0, Math.round(((ms - segment.start) / 1000) * fps));
-  const reachable = (focus) => Math.min(1 - 0.5 / segment.scale, Math.max(0.5 / segment.scale, focus));
-  const points = [segment[axis], ...segment.glides.map((glide) => glide[axis])].map(reachable);
-  let expr = points.at(-1).toFixed(4);
+  let expr = points.at(-1).toFixed(6);
   for (let i = segment.glides.length - 1; i >= 0; i -= 1) {
-    const from = points[i].toFixed(4);
-    const to = points[i + 1].toFixed(4);
+    const from = points[i].toFixed(6);
+    const to = points[i + 1].toFixed(6);
     const startFrame = frameAt(segment.glides[i].startMs);
     const endFrame = Math.max(startFrame + 1, frameAt(segment.glides[i].endMs));
     expr =
@@ -262,6 +258,30 @@ function focusExpression(segment, axis, fps) {
       `${expr}))`;
   }
   return expr;
+}
+
+// The crop centre along one axis.
+//
+// Each focus is first pulled to the nearest centre the crop can really sit at
+// at that stop's zoom level (zoompan clamps the crop to the frame anyway).
+// Sliding between the raw foci instead would let one axis run into its clamp
+// early and stop while the other keeps moving, which reads as "up, then
+// across" rather than a straight line. The clamp is a no-op at the endpoints,
+// so nothing else changes.
+function focusExpression(segment, axis, fps) {
+  const scales = segmentScales(segment);
+  const points = [segment[axis], ...segment.glides.map((glide) => glide[axis])].map((focus, i) =>
+    Math.min(1 - 0.5 / scales[i], Math.max(0.5 / scales[i], focus)),
+  );
+  return glideExpression(segment, points, fps);
+}
+
+// The held zoom level. A glide between levels eases the crop's size (1/zoom),
+// not the zoom factor itself, so the frame's edges move at an even pace
+// instead of rushing at the wide end.
+function holdZoomExpression(segment, fps) {
+  const inverse = segmentScales(segment).map((scale) => 1 / scale);
+  return `1/(${glideExpression(segment, inverse, fps)})`;
 }
 
 function zoomFilter(segment, width, height, fps, timing = {}) {
@@ -274,8 +294,11 @@ function zoomFilter(segment, width, height, fps, timing = {}) {
   const outFrames = Math.max(1, Math.round((outMs / 1000) * fps));
   const totalFrames = Math.max(inFrames + outFrames, Math.round((durationMs / 1000) * fps));
   const holdUntil = Math.max(inFrames, totalFrames - outFrames);
-  const scale = segment.scale;
-  const delta = (scale - 1).toFixed(4);
+  // Zooms in to the first stop's level and out from the last one's; glides
+  // move between levels while held.
+  const scales = segmentScales(segment);
+  const inScale = scales[0];
+  const outScale = scales.at(-1);
   const cx = focusExpression(segment, "cx", fps);
   const cy = focusExpression(segment, "cy", fps);
   // Zoom-in uses ease-out (1 - (1-t)^2), not cosine: cosine ease-in-out starts
@@ -283,15 +306,19 @@ function zoomFilter(segment, width, height, fps, timing = {}) {
   // as dropped frames then a sudden rush. Zoom-out keeps cosine ease-in.
   const z =
     `if(lt(on,${inFrames}),` +
-    `1+${delta}*(1-pow(1-on/${inFrames},2)),` +
-    `if(lt(on,${holdUntil}),${scale},` +
-    `1+${delta}*(0.5-0.5*cos(PI*(${totalFrames}-on)/${outFrames}))))`;
+    `1+${(inScale - 1).toFixed(4)}*(1-pow(1-on/${inFrames},2)),` +
+    `if(lt(on,${holdUntil}),${holdZoomExpression(segment, fps)},` +
+    `1+${(outScale - 1).toFixed(4)}*(0.5-0.5*cos(PI*(${totalFrames}-on)/${outFrames}))))`;
   // The centre travels from the frame's middle to the focus in step with the
   // crop shrinking (linear in 1-1/zoom), which keeps it exactly as far off
   // centre as a crop of that size can sit. Jumping straight to the focus
   // instead pins an off-centre crop against the frame edge early in the ramp
-  // and lets go of it partway through: a visible kink in the motion.
-  const progress = `(1-1/zoom)/${(1 - 1 / scale).toFixed(6)}`;
+  // and lets go of it partway through: a visible kink in the motion. While
+  // held (including a glide between levels) the centre sits on the focus.
+  const rampProgress = (level) => `(1-1/zoom)/${(1 - 1 / level).toFixed(6)}`;
+  const progress =
+    `if(lt(on,${inFrames}),${rampProgress(inScale)},` +
+    `if(lt(on,${holdUntil}),1,${rampProgress(outScale)}))`;
   const x = `max(0,min(iw-iw/zoom,(0.5+((${cx})-0.5)*${progress})*iw-iw/zoom/2))`;
   const y = `max(0,min(ih-ih/zoom,(0.5+((${cy})-0.5)*${progress})*ih-ih/zoom/2))`;
   // format=yuv444p (not yuv420p): the intermediate format station is where
