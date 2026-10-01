@@ -30,7 +30,7 @@ file):
 | **Narration** under the screens (multi-screen flows only): a yellow line per beat; an auto-numbered "Step N" header over the setup; a white "See it in action" section for the demonstration; a yellow payoff line at the end | [`narration.md`](../../tooling/references/narration.md) |
 | A **glow** on the screen each line is about, moving between screens as the story does | [`narration.md`](../../tooling/references/narration.md#focus) |
 | Quiet **background music**, added automatically | [tooling README](../../tooling/README.mdx#music) |
-| **Viewer-paced** steps: nothing dead, values nobody reads entered fast, waits only as long as the page needs | [`effects.md`](../../tooling/references/effects.md#pacing) |
+| **Viewer-paced** steps: a gliding cursor, a beat after each click, repeats brisk but followable, nothing dead, waits only as long as the page needs | [`effects.md`](../../tooling/references/effects.md#pacing) |
 | Every screen **stays in sync**, and clips of equal length | the flow's README ([`zoom.md`](../../tooling/references/zoom.md#procedure) step 5) |
 
 The [definition of done](#9-verify-with-a-real-run) is one checklist over all of it. Once this
@@ -143,7 +143,8 @@ Step and effects reference:
   ([`narration.md`](../../tooling/references/narration.md)). `narrationFocus` names a screen (see
   its `name` in `screens`), or `"all"`/`"none"`. It must never change a step's own timing: fix a
   narration warning in the text, not by adding waits.
-- **Pacing:** nothing dead, values nobody reads entered fast
+- **Pacing:** the first time an action is shown, the defaults; when it repeats, the repeat tier;
+  no `pause: 0` by habit, nothing dead
   ([`effects.md`](../../tooling/references/effects.md#pacing)).
 
 Once this project has an earlier flow, copy the shape of its scenario(s) rather than starting
@@ -322,9 +323,13 @@ is the definition of done, and it points to where each item's details live:
    yellow and white are where the plan says, and every line fits on one line
    ([`narration.md`](../../tooling/references/narration.md#procedure)).
 4. **The flow itself is unchanged by the text.** No wait was added or slowed to fit a line.
-5. **Sync** (multi-screen flows only). The beats land where the README's Sync section says and the
+5. **Pacing.** `node .appreel/tooling/pacing.mjs .appreel/flows/<name>/.output` has nothing left
+   that looks wrong on the video: every rushed exit, jump and zoom pump fixed, and any dead air it
+   reports is a wait the page truly needs or a beat carrying a line
+   ([`effects.md`](../../tooling/references/effects.md#checking-pacing)).
+6. **Sync** (multi-screen flows only). The beats land where the README's Sync section says and the
    clips are within ~0.4s of each other. Re-check it after any change to a step's timing.
-6. **Music.** The finished video has one AAC track at about -26 LUFS, and the intermediate clips
+7. **Music.** The finished video has one AAC track at about -26 LUFS, and the intermediate clips
    are silent:
 
    ```bash
@@ -333,7 +338,7 @@ is the definition of done, and it points to where each item's details live:
    ffmpeg -hide_banner -nostats -i $V -vn -af ebur128 -f null - 2>&1 | grep -A6 Summary | grep "I:"
    ```
 
-7. **README.** The screens list, zoom plan, narration plan, sync notes and Needs match what the
+8. **README.** The screens list, zoom plan, narration plan, sync notes and Needs match what the
    scenarios now do.
 
 Judge the video, not the logs: the times in the click and narration logs run a few hundred
@@ -346,7 +351,9 @@ Don't commit unless asked.
 
 Same files, same rules. After changing a scenario, do a real run (step 9) — a locator that looks
 right in JSON often isn't. If a flow's needs changed (new account, new required state), update its
-README **Needs** in the same change.
+README **Needs** in the same change. When the app's UI changed under a flow (a dialog that used to
+close itself now needs a click), check the flow's `setup.mjs` and its helpers too: anything that
+drives the same UI off camera breaks the same way the scenario does.
 
 Every flow in `.appreel/flows/` meets the [north star](#what-every-flow-gets-right), so keep it
 that way: when you change a scenario, update the README plans that describe it and run the whole

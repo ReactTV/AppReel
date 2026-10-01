@@ -54,8 +54,13 @@ the rules are built from.
    attention moves to another region. Then choose the transition:
    - the next stretch follows directly from the last (menu → the dialog it opens): let it **glide**,
      which happens on its own when the gap is under 1s.
-   - a new scene (a different page, after a load): put a `wait` of ~600ms between them so the gap is
-     over 1s and the view zooms fully out and back in.
+   - a new scene (a different page, after a load): either let it glide (under 1s) when the camera
+     can follow the move, or give the new page a real full-frame beat of at least ~2.5s, with
+     something in it: the load, a narration line, an unzoomed click. A gap of 1 to 2.5s reads as
+     the camera pumping out and back in, and `pacing.mjs` reports it.
+   - a nav link that only leads to the next scene (a top-bar link, right after a stretch ends):
+     give it `"zoom": false`. Zooming in on it adds an out-in-out between the stretch before and the
+     one on the new page.
 
    Never leave a gap of 1 to ~3s between two stretches in the same area. If they fit in one crop,
    rule 2 already says to merge them.
@@ -203,7 +208,7 @@ Example shape (from `switch-cams-with-stingers`):
 | Stingers / short animations look choppy | Delivery or clip was 30 fps | Use current `delivery-format.mjs` (60 fps); re-record |
 | Bad on presentation, fine on desktop clip | Second screencast of embedded video | Fix desktop clip first; presentation is a separate pass |
 | Pumping between nearby clicks | Two stretches where one crop would fit | Merge per rule 2; or glide if areas differ |
-| Fast zoom out-then-in between two stretches | Gap between regions of 1 to ~2s (under 1s now always glides, whatever the levels) | Close the gap under 1s so it glides, or open it past ~2.5s so the full frame reads as a deliberate beat |
+| Fast zoom out-then-in between two stretches | Gap between regions of 1 to ~2.5s (under 1s now always glides, whatever the levels); `pacing.mjs` reports it as a zoom pump | Close the gap under 1s so it glides, or open it past ~2.5s so the full frame reads as a deliberate beat; a nav link zoomed between two stretches is the usual cause, so give it `"zoom": false` |
 | A stretch follows the pointer instead of its `zoomFocus` | The focus was on a `waitFor` (ignored) | Move `holdZoomAfter`/`zoomFocus` to the first click (rule 4) |
 | A click happens off screen | Target outside the held crop | Release on a `wait` before it (rule 5) |
 | A one-click stretch took over the next stretch (its scale, the next one's focus) | A lone click logs no end, so the region builder merges the next click within `zoomMergeDist` into it | Give the click `holdZoomAfter` and put `releaseZoomHold` on a `wait` (even `ms: 0`) right after it |

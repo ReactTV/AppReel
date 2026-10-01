@@ -194,7 +194,10 @@ never compete with the screens. Keep it this subtle.
    the step that does it, and what happened on the step after. Reusing the `wait` step after the
    action is the usual way to place a result line. When the action is the flow's last step, add
    `{ "action": "wait", "ms": 0, "narration": "…" }` after it: a zero-length step carries the line
-   without lengthening the flow.
+   without lengthening the flow. A result shown at full frame after a stretch (the finished form,
+   the filled schedule) gets its line on the `wait` that releases the zoom, so the line rises as the
+   camera pulls back. Put it on a later `wait` and the viewer watches a still page with nothing to
+   read first, which `pacing.mjs` reports as dead air.
 7. **Fix a warning in the text, never in the flow.** A pushed line means two beats sit too close.
    Merge them into one line (as "Paste the sync key and confirm" merges two beats into one), or
    move a line to a later step. Do not add `wait` steps or slow the flow to make room.

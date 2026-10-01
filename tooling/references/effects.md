@@ -126,10 +126,19 @@ Each is a step option, and the scenario can set a default for all steps:
 | `pause` | scenario `pauseMs`, else 350 | Holding after the step |
 | `typeDelay` | scenario `typeDelayMs`, else 90 | Milliseconds per typed character |
 
-Pace by what the viewer needs to read. A step that shows something worth reading (a URL, a name, a
-result) keeps the defaults or goes slower. A step that only fills a field nobody needs to read
-(sizes, filler values) goes fast: about `typeDelay` 30, `moveDurationMs` 150, `preClickMs` 60 and
-`pause` 100. Typing takes `typeDelay` × characters plus ~1.5ms per character, so a long string needs
+Pace by what the viewer needs to see. Three tiers cover most steps:
+
+| Tier | For | Settings | Feels like |
+| --- | --- | --- | --- |
+| walkthrough | the first time the video shows an action | the defaults | ~1.5s per click |
+| repeat | the same actions again (the second to fourth of four rows) | `moveDurationMs` 400, `preClickMs` 150, `pause` 150 | ~1s per click, brisk but followable |
+| fill | values nobody needs to read (sizes, filler values) | the repeat pointer, `typeDelay` 0–30 | the field just fills |
+
+Don't go below the repeat pointer: under ~500ms from setting off to the click reads as the cursor
+jumping. Don't set `pause: 0` out of habit either: the cursor then leaves before the click's result
+shows. Keep it for a step the next one continues (a select-all before a delete). A value worth
+reading (a name the viewer will see again) types slowly enough to read, about `typeDelay` 35.
+Typing takes `typeDelay` × characters plus ~1.5ms per character, so a long string needs
 a small `typeDelay` (13 for a 43-character URL is about 600ms); recompute it when the text changes.
 A `wait` step is dead air, so make it the shortest the page needs: the next click already waits
 for its target to appear. The gap between two clicks is the wait plus a fixed cost around each click
