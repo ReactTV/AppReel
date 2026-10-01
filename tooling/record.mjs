@@ -19,14 +19,21 @@ import { addMusic } from "./music.mjs";
 // device's size). The zoom foci and the stage are calibrated for it.
 export const DEFAULT_VIEWPORT = { width: 1920, height: 1080 };
 const PRE_CLICK_MS = 520;
-export const POST_CLICK_MS = 2500;
+/** A beat after each step so its result registers before the pointer leaves. */
+export const POST_CLICK_MS = 350;
 export const CLICK_ZOOM_IN_MS = 600;
 export const CLICK_ZOOM_OUT_MS = 600;
-export const CLICK_MOVE_MS = 300;
+/** An unhurried cursor: shorter moves read as the pointer jumping. */
+export const CLICK_MOVE_MS = 500;
 /** How long a drag takes from press to release when a step doesn't say. */
 export const DRAG_MOVE_MS = 450;
 export const CLICK_PRE_CLICK_MS = 300;
 export const CAPTURE_OUTPUT_FPS = 60;
+
+/** One pointer move per ~16ms, so the drawn cursor glides at the capture's 60fps. */
+export function pointerStepsFor(durationMs) {
+  return Math.max(12, Math.round(durationMs / 16));
+}
 
 /** Aligns a capture timestamp to a video frame so plain/zoom cuts do not hitch. */
 export function frameAlignCaptureMs(ms) {
@@ -1133,8 +1140,8 @@ function resolveLoggedZoomFocus(step, state, pointerCx, pointerCy) {
 
 async function animateMove(page, state, x, y, options = {}) {
   const hover = options.hover ?? true;
-  const steps = options.steps ?? state.moveSteps ?? 18;
   const durationMs = options.durationMs ?? state.moveDurationMs ?? CLICK_MOVE_MS;
+  const steps = options.steps ?? state.moveSteps ?? pointerStepsFor(durationMs);
   const stepSleep = durationMs / steps;
   const fromX = state.x;
   const fromY = state.y;
@@ -1362,10 +1369,9 @@ export async function runScenario(page, scenario, log, state) {
       const dragDurationMs = Number.isFinite(step.dragDurationMs)
         ? step.dragDurationMs
         : DRAG_MOVE_MS;
-      // Enough moves for the drawn cursor to glide at the capture's 60fps.
       const dragSteps = Number.isFinite(step.dragSteps)
         ? step.dragSteps
-        : Math.max(12, Math.round(dragDurationMs / 16));
+        : pointerStepsFor(dragDurationMs);
       const startX = target.x;
       const startY = target.y;
       if (effects.cursor) {
@@ -1719,7 +1725,8 @@ export async function prepareRecording(options) {
     moveDurationMs: Number.isFinite(scenario.moveDurationMs)
       ? scenario.moveDurationMs
       : CLICK_MOVE_MS,
-    moveSteps: Number.isFinite(scenario.moveSteps) ? scenario.moveSteps : 18,
+    // Unset: derived from each move's duration (pointerStepsFor).
+    moveSteps: Number.isFinite(scenario.moveSteps) ? scenario.moveSteps : undefined,
     zoomInMs: Number.isFinite(scenario.zoomInMs) ? scenario.zoomInMs : CLICK_ZOOM_IN_MS,
     zoomOutMs: Number.isFinite(scenario.zoomOutMs) ? scenario.zoomOutMs : CLICK_ZOOM_OUT_MS,
     zoomScale: scenario.zoomScale,

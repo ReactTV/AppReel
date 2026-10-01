@@ -120,9 +120,10 @@ Each is a step option, and the scenario can set a default for all steps:
 
 | Option | Default | What it times |
 | --- | --- | --- |
-| `moveDurationMs` | 300 | Cursor travel to the target |
+| `moveDurationMs` | 500 | Cursor travel to the target |
+| `moveSteps` | one per ~16ms of the move | Pointer moves per travel; leave it unset so the cursor glides at 60fps |
 | `preClickMs` | 300 | Resting on the target before the click (with zoom on) |
-| `pause` | scenario `pauseMs`, else 2500 | Holding after the step |
+| `pause` | scenario `pauseMs`, else 350 | Holding after the step |
 | `typeDelay` | scenario `typeDelayMs`, else 90 | Milliseconds per typed character |
 
 Pace by what the viewer needs to read. A step that shows something worth reading (a URL, a name, a
