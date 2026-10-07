@@ -75,7 +75,11 @@ the rules are built from.
    after a keypress or drag, put the release on a `wait` after it. A different `zoomFocus`
    mid-stretch is a new stretch, so make it one deliberately or don't. The only link between a focus
    and its step's own target is that the target must sit inside the crop (at least ~0.03 from the
-   crop edge), or the cursor arrives off screen. Older flows repeat `holdZoomAfter` and `zoomFocus` on
+   crop edge), or the cursor arrives off screen; the recorder checks this at every click and fails
+   the run naming the target, the crop and the focus. Two mistakes fail before a browser opens: a
+   click with both `holdZoomAfter` and `releaseZoomHold` (it keeps holding, the release is
+   ignored), and a new `zoomFocus` inside a held stretch (it merges into the stretch, which then
+   takes the last focus). Older flows repeat `holdZoomAfter` and `zoomFocus` on
    every step of a stretch; that is harmless, but write them once.
 5. **Don't hold across waiting.** Release before a wait longer than ~2.5s (a load, a process, "watch
    the other screen") and start a new stretch after it. A click that only triggers something you
@@ -241,8 +245,12 @@ Example shape (from `switch-cams-with-stingers`):
      const r = await loc.first().boundingBox();
      console.log(name, { x: [r.x / w, (r.x + r.width) / w], y: [r.y / h, (r.y + r.height) / h] });
    };
-   // perform the flow's steps, calling box() at each state you need to frame
+   const shot = (name) => page.screenshot({ path: `.scratchpad/${name}.png` });
+   // perform the flow's steps, calling box() and shot() at each state you need to frame
    ```
+
+   Look at the screenshots, not only the numbers: they show what else sits in a crop (a control
+   row half cut at its edge) and which state a popup opens in.
 
 3. **Write.** First step of each stretch gets the focus and hold, last gets the release (rule 4).
 4. **Run and verify.**

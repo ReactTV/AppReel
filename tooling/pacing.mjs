@@ -15,8 +15,14 @@ export const PACING_MIN_APPROACH_MS = 500;
 // Two zoom regions this far apart zoom fully out and straight back in: too
 // long to glide (under 1s), too short to read as a deliberate full-frame beat.
 export const PACING_PUMP_GAP_MS = [1000, 2500];
-// Longer than this with no pointer step and no new narration line is dead air.
+// Longer than this with no pointer step and no narration line is dead air.
 export const PACING_MAX_IDLE_MS = 2500;
+// A line logged this close to the start of a pause carries it: the line is
+// what the viewer reads (or watches the result of) while nothing moves.
+const PACING_LINE_CARRY_MS = 300;
+// An optional step that waits longer than this for a target that never shows
+// is a timeout spent on nothing, often with the camera frozen on a zoom.
+export const PACING_MAX_SKIPPED_WAIT_MS = 1000;
 
 const POINTER_ACTIONS = new Set(["click", "dblclick", "double-click", "type", "select", "drag"]);
 
@@ -114,29 +120,43 @@ export function checkPacing({ clicks = [], steps = [], narration = [], zooms = [
     }
   }
 
-  // Dead air: runs of non-pointer steps (wait, waitFor, press, goto), cut
-  // wherever a narration line starts, since a new line is something to read.
+  for (const step of steps) {
+    const waitedMs = (step.end ?? step.t) - step.t;
+    if (step.skipped && waitedMs > PACING_MAX_SKIPPED_WAIT_MS) {
+      findings.push({
+        t: step.t,
+        kind: "skipped",
+        message:
+          `optional ${describe(step)} waited ${seconds(waitedMs)} for a target that never appeared. ` +
+          `Drop the step if it never shows in this flow, or give it a shorter timeout.`,
+      });
+    }
+  }
+
+  // Dead air: runs of non-pointer steps (wait, waitFor, press, goto) that no
+  // narration line carries. A line starting a pause carries it until the run
+  // ends, so only the stretch before the run's first line can be dead.
   const lineStarts = narration.map((line) => line.t).sort((a, b) => a - b);
   let run = [];
   const flushRun = () => {
     if (run.length === 0) return;
     const start = run[0].t;
     const end = run.at(-1).end ?? run.at(-1).t;
-    const cuts = [start, ...lineStarts.filter((t) => t > start && t < end), end];
-    for (let i = 1; i < cuts.length; i += 1) {
-      const idleMs = cuts[i] - cuts[i - 1];
-      if (idleMs > PACING_MAX_IDLE_MS) {
-        const inside = run
-          .filter((step) => (step.end ?? step.t) > cuts[i - 1] && step.t < cuts[i])
-          .map((step) => (step.action === "wait" ? "wait" : describe(step)));
-        findings.push({
-          t: cuts[i - 1],
-          kind: "dead air",
-          message:
-            `${seconds(idleMs)} with no pointer step and no new line (${inside.join(", ")}). ` +
-            `Shorten the waits, or put a line on the step that starts it if the pause means something.`,
-        });
-      }
+    const firstLine = lineStarts.find((t) => t >= start - PACING_LINE_CARRY_MS && t < end);
+    const idleEnd =
+      firstLine === undefined ? end : firstLine <= start + PACING_LINE_CARRY_MS ? start : firstLine;
+    const idleMs = idleEnd - start;
+    if (idleMs > PACING_MAX_IDLE_MS) {
+      const inside = run
+        .filter((step) => (step.end ?? step.t) > start && step.t < idleEnd)
+        .map((step) => (step.action === "wait" ? "wait" : describe(step)));
+      findings.push({
+        t: start,
+        kind: "dead air",
+        message:
+          `${seconds(idleMs)} with no pointer step and no line (${inside.join(", ")}). ` +
+          `Shorten the waits, or put a line on the step that starts it if the pause means something.`,
+      });
     }
     run = [];
   };
@@ -178,6 +198,10 @@ function printReport(inputs) {
       zooms: readJson(`${stem}.zooms.json`, {}).suggestions ?? [],
     };
     if (logs.clicks.length === 0 && logs.steps.length === 0) continue;
+    // A capture with no pointer step and no line (the presentation's own stage
+    // recording) has no pacing to check.
+    const hasPointerStep = logs.steps.some((step) => POINTER_ACTIONS.has(step.action));
+    if (logs.clicks.length === 0 && logs.narration.length === 0 && !hasPointerStep) continue;
     const findings = checkPacing(logs);
     total += findings.length;
     process.stdout.write(`${path.basename(stem)}: ${findings.length ? `${findings.length} to look at` : "ok"}\n`);

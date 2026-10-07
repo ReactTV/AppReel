@@ -14,12 +14,13 @@ const VIEWPORT = { width: 1920, height: 1080 };
 
 describe("resolveRecordingPolicy", () => {
   it("defaults to strict viewport bounds", () => {
-    assert.deepEqual(resolveRecordingPolicy({}), { allowOffViewport: false });
+    assert.deepEqual(resolveRecordingPolicy({}), { allowOffViewport: false, allowOffCrop: false });
   });
 
   it("allows opt-out", () => {
     assert.deepEqual(resolveRecordingPolicy({ recording: { allowOffViewport: true } }), {
       allowOffViewport: true,
+      allowOffCrop: false,
     });
   });
 });

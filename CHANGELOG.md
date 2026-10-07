@@ -13,8 +13,34 @@
 - `captureRecording` holds the last frame until capture stops by default (was opt-in via
   `holdLastFrame`). A flow ending on a still page no longer produces a clip shorter than its
   logs, which stalled the zoom render. Pass `holdLastFrame: false` to opt out.
+- Inside a planned zoom stretch, a click whose target falls outside the stretch's crop (or within
+  0.03 of its edge) fails the run, naming the target, the crop and the focus.
+  `scenario.recording.allowOffCrop` opts out.
+- `validateScenario` refuses zoom options that would silently misbehave: `holdZoomAfter` with
+  `releaseZoomHold` on one click, a new `zoomFocus` inside a held stretch, zoom options on
+  `waitFor`, and a zoom-starting `wait` without a focus or inside a hold.
+- Optional steps whose target never appeared are marked `skipped` in `.steps.jsonl`.
+- The zoom render times out with a one-line explanation when it stalls, and ffmpeg errors keep
+  only the meaningful stderr lines instead of every progress update.
 - The drawn cursor is installed in the top page only. Embedded iframes (video players) no longer
   each show a stray arrow at their top-left.
+
+### Pacing
+
+- Reports optional steps that waited over 1s for a target that never appeared (`skipped`).
+- A narration line on the step that starts a pause now carries the whole pause, as the docs
+  always said; only the stretch before a pause's first line counts as dead air.
+- Captures with no pointer step and no narration (the presentation's own stage recording) are
+  skipped instead of reported as one long dead-air finding.
+
+### Docs
+
+- `effects.md`: crop bounds, the new pacing findings, and "Targeting tricky UI" (icon-only
+  buttons, labels beside icons, stacked modals, optional confirms).
+- `zoom.md`: the crop check and refused zoom combinations under rule 4; the measuring script
+  takes screenshots.
+- `create-flow`: the staged `record.mjs` template includes setup, `storageState`, tail padding,
+  an outro and error handling; step 9 shows how to pull frames to check.
 
 ## 0.2.0
 

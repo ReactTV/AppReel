@@ -181,44 +181,68 @@ import { fileURLToPath } from "node:url";
 
 import { prepareRecording, captureRecording, createRecordingSyncBarrier } from "../../tooling/record.mjs";
 import { composePresentation } from "../../tooling/presentation/compose.mjs";
+import { setup } from "./setup.mjs"; // drop if the flow has no setup.mjs
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const outDir = path.join(__dirname, ".output");
+const authPath = path.join(__dirname, "..", "..", "auth", "<account>.auth.json");
 const readScenario = (name) =>
   JSON.parse(fs.readFileSync(path.join(__dirname, `${name}.scenario.json`), "utf8"));
 
 const screens = [
-  { name: "desktop", label: "Desktop", frame: "desktop", scenario: readScenario("desktop") },
+  {
+    name: "desktop",
+    label: "Desktop", // "" hides the column label (one framed screen)
+    frame: "desktop",
+    scenario: readScenario("desktop"),
+    storageState: authPath, // drop for an anonymous screen
+  },
   { name: "mobile", label: "Mobile", frame: "mobile", scenario: readScenario("mobile") },
   // add as many as the flow needs
 ];
 
-// prepareRecording for everyone first, then captureRecording for everyone via
-// Promise.all, so every screencast starts within the same tick regardless of
-// each screen's own setup time (session restore vs. an anonymous page load).
-const prepared = await Promise.all(
-  screens.map((screen) =>
-    prepareRecording({
-      scenario: screen.scenario,
-      out: path.join(__dirname, ".output", `<name>-${screen.name}.mp4`),
-    }),
-  ),
-);
-// The barrier makes every screen wait for the others to finish their own
-// steps before any of them starts its tail padding, so they end together too.
-const sync = createRecordingSyncBarrier(prepared.length);
-const recorded = await Promise.all(prepared.map((p) => captureRecording(p, { sync })));
+async function main() {
+  await setup();
 
-const result = await composePresentation({
-  screens: screens.map((screen, i) => ({
-    name: screen.name,
-    label: screen.label,
-    frame: screen.frame,
-    clip: recorded[i].out,
-  })),
-  header: "Add Your First Piece Of Content", // short, title case; renders top-center
-  out: path.join(__dirname, ".output", "<name>-presentation.mp4"),
+  // prepareRecording for everyone first, then captureRecording for everyone via
+  // Promise.all, so every screencast starts within the same tick regardless of
+  // each screen's own setup time (session restore vs. an anonymous page load).
+  const prepared = await Promise.all(
+    screens.map((screen) =>
+      prepareRecording({
+        scenario: screen.scenario,
+        out: path.join(outDir, `<name>-${screen.name}.mp4`),
+        storageState: screen.storageState,
+      }),
+    ),
+  );
+  // The barrier makes every screen wait for the others to finish their own
+  // steps before any of them starts its tail padding, so they end together too.
+  const sync = createRecordingSyncBarrier(prepared.length);
+  const recorded = await Promise.all(
+    // tailPaddingMs: a beat after the last step so the clip doesn't cut off
+    // before an outro or the end of the video.
+    prepared.map((p) => captureRecording(p, { sync, tailPaddingMs: 2500 })),
+  );
+
+  const result = await composePresentation({
+    screens: screens.map((screen, i) => ({
+      name: screen.name,
+      label: screen.label,
+      frame: screen.frame,
+      clip: recorded[i].out,
+    })),
+    header: "Add Your First Piece Of Content", // short, title case; renders top-center
+    // outro: { html: path.join(__dirname, "..", "..", "outros", "<brand>", "outro.html"), durationMs: 3000 },
+    out: path.join(outDir, "<name>-presentation.mp4"),
+  });
+  console.log("Done:", result.out);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
 });
-console.log("Done:", result.out);
 ```
 
 Don't simplify away `createRecordingSyncBarrier`: a signed-in session restore takes much longer
@@ -315,7 +339,17 @@ is the definition of done, and it points to where each item's details live:
 
 1. **Viewport.** Desktop scenarios say 1920x1080.
 2. **Zoom.** The checklist in [`zoom.md`](../../tooling/references/zoom.md#procedure), for every
-   clip, and a frame from inside each stretch showing one steady crop.
+   clip, and a frame from inside each stretch showing one steady crop. Pull frames at a few
+   seconds into each stretch and look at them:
+
+   ```bash
+   C=.appreel/flows/<name>/.output/<name>-desktop.mp4
+   for t in 4 9 15; do ffmpeg -y -v error -ss $t -i $C -frames:v 1 -vf scale=960:-1 .scratchpad/frame-$t.png; done
+   ```
+
+   The recorder already fails a run whose click lands outside its stretch's crop, so a run that
+   finishes has every target on screen; the frames show what else the crop catches (a control row
+   half cut at its edge) and whether the page state is the one the line describes.
 3. **Narration** (staged flows only).
    `node .appreel/tooling/presentation/narration.mjs .appreel/flows/<name>/.output`
    reads as the story, the steps count up with no gaps, each line lights the right screen, and
@@ -324,8 +358,8 @@ is the definition of done, and it points to where each item's details live:
    ([`narration.md`](../../tooling/references/narration.md#procedure)).
 4. **The flow itself is unchanged by the text.** No wait was added or slowed to fit a line.
 5. **Pacing.** `node .appreel/tooling/pacing.mjs .appreel/flows/<name>/.output` has nothing left
-   that looks wrong on the video: every rushed exit, jump and zoom pump fixed, and any dead air it
-   reports is a wait the page truly needs or a beat carrying a line
+   that looks wrong on the video: every rushed exit, jump, zoom pump and skipped optional step
+   fixed, and any dead air it reports is a wait the page truly needs
    ([`effects.md`](../../tooling/references/effects.md#checking-pacing)).
 6. **Sync** (multi-screen flows only). The beats land where the README's Sync section says and the
    clips are within ~0.4s of each other. Re-check it after any change to a step's timing.

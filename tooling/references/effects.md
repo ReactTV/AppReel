@@ -33,11 +33,18 @@ is (a small icon button counts once it is fully visible), `waitFor` steps must
 land on-screen, and a cursor path that would travel outside the frame fails the
 recording with a step index.
 
-Opt out only when you deliberately interact with off-screen UI:
+The same holds for the zoom crop. Inside a planned stretch (one with a
+`zoomFocus`) every click is shown through that stretch's crop, zoomed or not,
+so a target outside the crop, or within 0.03 of its edge, fails the recording
+with the target's position, the crop and the focus. That is the sign the focus
+was guessed rather than measured ([`zoom.md`](./zoom.md#procedure)).
+
+Opt out only when you deliberately interact with off-screen UI, or click
+outside a crop on purpose:
 
 ```json
 {
-  "recording": { "allowOffViewport": true }
+  "recording": { "allowOffViewport": true, "allowOffCrop": true }
 }
 ```
 
@@ -181,12 +188,28 @@ It reports, per clip, with the step it happened on:
 | rushed exit | the cursor leaves a click before its result shows | under 150ms from click to the next move |
 | jump | the cursor reaches its target too fast to follow | under 500ms from setting off to the click |
 | zoom pump | the camera zooms out and straight back in | 1 to 2.5s between two zoom regions |
-| dead air | nothing moves and no new line appears | over 2.5s of `wait`/`waitFor`/`press` with no narration line starting |
+| dead air | nothing moves and no line carries it | over 2.5s of `wait`/`waitFor`/`press` before the first narration line (a line on the step that starts the pause carries all of it) |
+| skipped | an optional step waited for a target that never appeared | over 1s; the camera usually sits frozen on a zoom meanwhile |
 
 A finding is a prompt to look at the video there, not an order: a wait for a page to load or a URL
 to resolve can be dead air the viewer needs, and a deliberate full-frame beat can be longer. Fix
 the ones that look wrong on the video, and give the pause that means something a narration line.
 Dead air needs the `.steps.jsonl` log, which runs recorded before 0.1.9 don't have.
+
+## Targeting tricky UI
+
+- **Icon-only buttons with no accessible name** (a chevron, a gear) have no `name` to match. Target
+  them by their icon instead, scoped to where they live:
+  `"selector": "[role=\"dialog\"] button:has(svg[data-icon=\"angle-right\"])"`. The recorder
+  clicks the first match, so check the DOM order when the same icon appears twice.
+- **Buttons whose label sits next to an icon** often miss `:text-is("Add")`, because the text
+  lives in a nested element. Use `"role": "button", "name": "Add", "exact": true`.
+- **Stacked modals.** `role` locators skip what is `aria-hidden` behind the top modal, so a button
+  name that also exists underneath (a sidebar's "Schedule Content") still finds the one on top.
+  CSS selectors don't, so scope them to the modal.
+- **Optional confirms** (`"optional": true`) cost their whole `timeout` when they don't appear, with
+  the camera frozen on whatever stretch is held. Keep one only if the confirm really shows in some
+  runs; `pacing.mjs` reports the ones that never fired.
 
 ## The `press` step
 

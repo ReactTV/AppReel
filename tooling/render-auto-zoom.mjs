@@ -68,11 +68,29 @@ function parseArgs(argv) {
   return args;
 }
 
+// ffmpeg's progress lines ("frame= … speed=") are rewritten with \r and run to
+// tens of KB on a stalled render; an error keeps only the lines that explain it.
+export function summarizeFfmpegStderr(stderr, maxLines = 12) {
+  return stderr
+    .split(/[\r\n]+/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^frame=/.test(line) && !/buffers queued/.test(line))
+    .slice(-maxLines)
+    .join("\n");
+}
+
 function run(command, argv, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, argv, {
       stdio: ["ignore", options.stdout ?? "pipe", options.stderr ?? "pipe"],
     });
+    let timedOut = false;
+    const timer = options.timeoutMs
+      ? setTimeout(() => {
+          timedOut = true;
+          child.kill("SIGKILL");
+        }, options.timeoutMs)
+      : undefined;
     let stdout = "";
     let stderr = "";
     if (child.stdout) {
@@ -85,13 +103,22 @@ function run(command, argv, options = {}) {
         stderr += chunk;
       });
     }
-    child.on("error", reject);
-    child.on("close", (code) => {
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code, signal) => {
+      clearTimeout(timer);
       if (code === 0) {
         resolve({ stdout, stderr });
         return;
       }
-      const error = new Error(`${command} exited ${code}${stderr ? `: ${stderr.trim()}` : ""}`);
+      const summary = summarizeFfmpegStderr(stderr);
+      const error = new Error(
+        timedOut && options.timeoutMessage
+          ? options.timeoutMessage
+          : `${command} exited ${code ?? signal}${summary ? `:\n${summary}` : ""}`,
+      );
       error.stdout = stdout;
       error.stderr = stderr;
       reject(error);
@@ -383,6 +410,9 @@ export function buildFilterComplex(suggestions, probe, timing = {}, tail = COLOR
   return { filter: parts.join(";"), map: "[out]", segments };
 }
 
+const RENDER_TIMEOUT_FLOOR_MS = 120_000;
+const RENDER_TIMEOUT_PER_CLIP_MS = 10;
+
 // Re-encode without zooming. The caller wants the container, not the effect.
 export function transcode(options) {
   return renderAutoZoom({ ...options, suggestions: [] });
@@ -428,7 +458,17 @@ export async function renderAutoZoom(options) {
     ffmpegArgs.push(...DELIVERY_ENCODE_ARGS);
   }
   ffmpegArgs.push(outPath);
-  await run("ffmpeg", ffmpegArgs);
+  // A render normally runs at several times real time; one far slower than
+  // that has stalled (a zoom region past the end of the clip did this).
+  const timeoutMs = Math.max(RENDER_TIMEOUT_FLOOR_MS, durationMs * RENDER_TIMEOUT_PER_CLIP_MS);
+  const lastRegionEndMs = Math.max(0, ...suggestions.map((region) => region.end ?? 0));
+  await run("ffmpeg", ffmpegArgs, {
+    timeoutMs,
+    timeoutMessage:
+      `zoom render stalled: ffmpeg was still running after ${Math.round(timeoutMs / 1000)}s on a ` +
+      `${(durationMs / 1000).toFixed(1)}s clip whose zoom regions end at ${(lastRegionEndMs / 1000).toFixed(1)}s. ` +
+      `A clip shorter than its click log is the usual cause (record.mjs holdLastFrame).`,
+  });
   if (!webm) {
     verifyDeliveryFile(outPath, {
       width: even(probe.width),

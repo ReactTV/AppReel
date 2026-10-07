@@ -11,6 +11,7 @@ import {
   suggestZooms,
   resolveZoomMergeOptions,
   isValidZoomScale,
+  ZOOM_SCALE,
   ZOOM_SCALE_PROBLEM,
 } from "./suggest-zooms.mjs";
 import { addMusic } from "./music.mjs";
@@ -732,8 +733,38 @@ function installCursor() {
 
 export const EFFECT_DEFAULTS = { zoom: true, cursor: true, captions: true };
 
-/** Pointer actions must stay inside the screencast unless opted out. */
-export const RECORDING_DEFAULTS = { allowOffViewport: false };
+/**
+ * Pointer actions must stay inside the screencast, and inside the zoom crop
+ * that will show them, unless opted out.
+ */
+export const RECORDING_DEFAULTS = { allowOffViewport: false, allowOffCrop: false };
+
+// How close to a crop's edge a target may sit before the cursor reads as
+// arriving off screen (zoom.md rule 4).
+export const ZOOM_CROP_MARGIN = 0.03;
+
+/**
+ * The part of the frame a zoom at `scale` on `focus` shows, normalized 0..1.
+ * The crop can't leave the frame, so the focus is clamped to 0.5/s..1-0.5/s.
+ */
+export function zoomCrop(focus, scale = ZOOM_SCALE) {
+  const half = 0.5 / scale;
+  const clampAxis = (value) => Math.min(Math.max(value, half), 1 - half);
+  const cx = clampAxis(focus.cx);
+  const cy = clampAxis(focus.cy);
+  return { left: cx - half, right: cx + half, top: cy - half, bottom: cy + half };
+}
+
+export function isPointInZoomCrop(nx, ny, crop, margin = ZOOM_CROP_MARGIN) {
+  return (
+    nx >= crop.left + margin &&
+    nx <= crop.right - margin &&
+    ny >= crop.top + margin &&
+    ny <= crop.bottom - margin
+  );
+}
+
+const fixed2 = (value) => value.toFixed(2);
 
 export function resolveRecordingPolicy(scenario) {
   const given = scenario?.recording;
@@ -1382,6 +1413,15 @@ function stepLabel(step) {
   return step.caption ?? step.name ?? step.text ?? step.label ?? step.selector ?? step.keys ?? step.url;
 }
 
+// An optional step whose target never showed: the step log keeps the time it
+// waited, so pacing.mjs can report a timeout spent on nothing.
+function markStepSkipped(state) {
+  const entry = state.steps?.at(-1);
+  if (entry) {
+    entry.skipped = true;
+  }
+}
+
 export async function runScenario(page, scenario, log, state) {
   const steps = scenario.steps ?? [];
   const effects = state.effects ?? EFFECT_DEFAULTS;
@@ -1480,6 +1520,7 @@ export async function runScenario(page, scenario, log, state) {
         try {
           await waitTarget.waitFor({ state: "visible", timeout });
         } catch {
+          markStepSkipped(state);
           continue;
         }
       } else {
@@ -1613,6 +1654,7 @@ export async function runScenario(page, scenario, log, state) {
       try {
         await targetLocator.waitFor({ state: "visible", timeout: stepTimeout });
       } catch {
+        markStepSkipped(state);
         continue;
       }
     } else {
@@ -1702,6 +1744,33 @@ export async function runScenario(page, scenario, log, state) {
         zoomStartT = state.activeZoomStartT;
       }
       moveStartT = Date.now() - state.startedAt;
+    }
+    // A planned stretch shows its fixed crop for every click inside it,
+    // zoomed or not, so a target outside that crop is clicked off screen.
+    if (
+      effects.zoom &&
+      state.activeZoomFocus &&
+      (clickZoom || state.zoomHeld) &&
+      !state.recording?.allowOffCrop
+    ) {
+      const scale = state.activeZoomScale ?? state.zoomScale ?? ZOOM_SCALE;
+      const crop = zoomCrop(state.activeZoomFocus, scale);
+      const nx = x / viewport.width;
+      const ny = y / viewport.height;
+      if (!isPointInZoomCrop(nx, ny, crop)) {
+        throw new Error(
+          viewportBoundsError(
+            step,
+            index,
+            steps.length,
+            `target at (${fixed2(nx)}, ${fixed2(ny)}) is outside its zoom crop ` +
+              `x ${fixed2(crop.left)}–${fixed2(crop.right)}, y ${fixed2(crop.top)}–${fixed2(crop.bottom)} ` +
+              `(focus ${fixed2(state.activeZoomFocus.cx)}, ${fixed2(state.activeZoomFocus.cy)} at ${scale}x), ` +
+              `so the cursor would click off screen. Measure the page and move zoomFocus (zoom.md rule 4), ` +
+              `release the stretch before this step, or set recording.allowOffCrop`,
+          ),
+        );
+      }
     }
     if (effects.cursor) {
       await animateMove(page, state, x, y, {
@@ -2158,6 +2227,81 @@ export async function recordWalkthrough(options) {
 
 // What the scenario itself must carry. What a walkthrough types on camera is
 // the author's call, so nothing here inspects step text.
+const ZOOM_POINTER_ACTIONS = new Set(["click", "dblclick", "double-click", "type", "select"]);
+
+const sameFocus = (a, b) =>
+  Boolean(a && b) && Math.abs(a.cx - b.cx) < 1e-6 && Math.abs(a.cy - b.cy) < 1e-6;
+
+/**
+ * Zoom options that would silently do something other than what they say,
+ * found by walking the planned holds (auto-continuity is decided at run time
+ * and isn't modelled here).
+ */
+export function zoomPlanProblems(steps) {
+  const problems = [];
+  let held = false;
+  let heldFocus;
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    const action = resolveAction(step);
+    const focus = normalizeZoomFocus(step.zoomFocus);
+    if (action === "goto") {
+      held = false;
+      heldFocus = undefined;
+      continue;
+    }
+    if (action === "waitFor" && (step.holdZoomAfter === true || step.zoomFocus !== undefined)) {
+      problems.push(
+        `steps[${index}] is a waitFor with holdZoomAfter/zoomFocus, which waitFor ignores; put them on a wait or a pointer step`,
+      );
+      continue;
+    }
+    if (action === "wait") {
+      if (step.releaseZoomHold === true) {
+        held = false;
+        heldFocus = undefined;
+      }
+      if (step.holdZoomAfter === true) {
+        if (!focus) {
+          problems.push(`steps[${index}] is a wait that starts a zoom (holdZoomAfter) without zoomFocus`);
+        } else if (held) {
+          problems.push(
+            `steps[${index}] is a wait that starts a zoom inside a held one; add releaseZoomHold to the same wait`,
+          );
+        }
+        held = true;
+        heldFocus = focus;
+      }
+      continue;
+    }
+    if (!ZOOM_POINTER_ACTIONS.has(action)) {
+      continue;
+    }
+    if (step.holdZoomAfter === true && step.releaseZoomHold === true) {
+      problems.push(
+        `steps[${index}] has both holdZoomAfter and releaseZoomHold; a click keeps holding and the release is ignored. ` +
+          `For a single zoom on this click, keep zoomFocus and releaseZoomHold and drop holdZoomAfter`,
+      );
+    }
+    if (held && focus && !sameFocus(focus, heldFocus)) {
+      problems.push(
+        `steps[${index}] sets a new zoomFocus inside a held stretch, which merges into it (the whole stretch takes the last focus). ` +
+          `End the stretch first: releaseZoomHold on the step before, or on a 0ms wait`,
+      );
+    }
+    if (step.holdZoomAfter === true) {
+      if (!held) {
+        heldFocus = focus;
+      }
+      held = true;
+    } else if (step.releaseZoomHold === true) {
+      held = false;
+      heldFocus = undefined;
+    }
+  }
+  return problems;
+}
+
 export function validateScenario(scenario, options = {}) {
   const problems = [];
   const steps = scenario.steps ?? [];
@@ -2198,6 +2342,7 @@ export function validateScenario(scenario, options = {}) {
       problems.push(`steps[${index}].zoomScale ${ZOOM_SCALE_PROBLEM}`);
     }
   }
+  problems.push(...zoomPlanProblems(steps));
   if (scenario.zoomScale !== undefined && !isValidZoomScale(scenario.zoomScale)) {
     problems.push(`scenario.zoomScale ${ZOOM_SCALE_PROBLEM}`);
   }
