@@ -726,6 +726,32 @@ function installCursor() {
 
 export const EFFECT_DEFAULTS = { zoom: true, cursor: true, captions: true };
 
+/** Pointer actions must stay inside the screencast unless opted out. */
+export const RECORDING_DEFAULTS = { allowOffViewport: false };
+
+export function resolveRecordingPolicy(scenario) {
+  const given = scenario?.recording;
+  if (given === undefined) {
+    return { ...RECORDING_DEFAULTS };
+  }
+  if (given === null || typeof given !== "object" || Array.isArray(given)) {
+    throw new Error("scenario.recording must be an object");
+  }
+  const recording = { ...RECORDING_DEFAULTS };
+  for (const [key, value] of Object.entries(given)) {
+    if (!(key in RECORDING_DEFAULTS)) {
+      throw new Error(
+        `unknown recording option: ${key}; known options are ${Object.keys(RECORDING_DEFAULTS).join(", ")}`,
+      );
+    }
+    if (typeof value !== "boolean") {
+      throw new Error(`recording.${key} must be true or false`);
+    }
+    recording[key] = value;
+  }
+  return recording;
+}
+
 export function resolveEffects(scenario) {
   const given = scenario?.effects;
   if (given === undefined) {
@@ -1065,7 +1091,7 @@ async function peekStepFocusCenter(page, step, state) {
   try {
     const locator = locatorFor(page, step);
     await locator.first().waitFor({ state: "visible", timeout: 5000 });
-    const box = await scrollToTarget(page, locator.first());
+    const box = await scrollToTarget(page, locator.first(), state);
     if (!box) {
       return null;
     }
@@ -1145,6 +1171,10 @@ async function animateMove(page, state, x, y, options = {}) {
   const stepSleep = durationMs / steps;
   const fromX = state.x;
   const fromY = state.y;
+  if (!state.recording?.allowOffViewport) {
+    const viewport = await cssViewport(page, page.viewportSize() ?? DEFAULT_VIEWPORT);
+    assertPointerPathInViewport(fromX, fromY, x, y, viewport, steps, options.stepLabel);
+  }
   for (let i = 1; i <= steps; i += 1) {
     const t = i / steps;
     const eased = 0.5 - 0.5 * Math.cos(Math.PI * t);
@@ -1223,6 +1253,63 @@ export function targetPoint(box, viewport = DEFAULT_VIEWPORT) {
   return { x: (left + right) / 2, y: (top + bottom) / 2 };
 }
 
+/** Intersection area of an element box with the recorded viewport (CSS pixels). */
+export function viewportHitArea(box, viewport = DEFAULT_VIEWPORT) {
+  const left = Math.max(box.x, 0);
+  const top = Math.max(box.y, 0);
+  const right = Math.min(box.x + box.width, viewport.width);
+  const bottom = Math.min(box.y + box.height, viewport.height);
+  if (right <= left || bottom <= top) {
+    return 0;
+  }
+  return (right - left) * (bottom - top);
+}
+
+const MIN_VIEWPORT_HIT_AREA = 32 * 32;
+
+export function isBoxActionableInViewport(
+  box,
+  viewport = DEFAULT_VIEWPORT,
+  minArea = MIN_VIEWPORT_HIT_AREA,
+) {
+  return viewportHitArea(box, viewport) >= minArea;
+}
+
+export function isPointInViewport(x, y, viewport = DEFAULT_VIEWPORT) {
+  return (
+    x >= 0 &&
+    y >= 0 &&
+    x <= viewport.width &&
+    y <= viewport.height
+  );
+}
+
+export function assertPointerPathInViewport(
+  fromX,
+  fromY,
+  toX,
+  toY,
+  viewport,
+  steps,
+  stepLabel,
+) {
+  for (let i = 1; i <= steps; i += 1) {
+    const t = i / steps;
+    const eased = 0.5 - 0.5 * Math.cos(Math.PI * t);
+    const nx = fromX + (toX - fromX) * eased;
+    const ny = fromY + (toY - fromY) * eased;
+    if (!isPointInViewport(nx, ny, viewport)) {
+      throw new Error(
+        `pointer path leaves the recorded viewport${stepLabel ? ` (${stepLabel})` : ""}: (${Math.round(nx)}, ${Math.round(ny)}) outside ${viewport.width}x${viewport.height}`,
+      );
+    }
+  }
+}
+
+function viewportBoundsError(step, index, stepsLength, detail) {
+  return `step ${index + 1}/${stepsLength}: ${detail} — ${JSON.stringify(step)}`;
+}
+
 // Boxes, the pointer, and anything drawn into the page are in the page's own
 // CSS pixels. A phone page without a viewport meta tag lays out wider than
 // the screen and is zoomed out to fit, so innerWidth/innerHeight, not
@@ -1241,20 +1328,39 @@ export function pageScale(screen, css) {
 // which skips the scroll a locator action would do for itself. It scrolls
 // with the DOM rather than scrollIntoViewIfNeeded(), which also waits for the
 // box to stop moving and so never returns for a pulsing or sliding target.
-async function scrollToTarget(page, target) {
-  const box = await target.boundingBox();
-  if (!box) {
-    return null;
-  }
+async function scrollToTarget(page, target, state) {
   const viewport = await cssViewport(page, page.viewportSize() ?? DEFAULT_VIEWPORT);
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  if (cx >= 0 && cx <= viewport.width && cy >= 0 && cy <= viewport.height) {
-    return box;
+  const allowOffViewport = state?.recording?.allowOffViewport === true;
+
+  if (allowOffViewport) {
+    const box = await target.boundingBox();
+    if (!box) {
+      return null;
+    }
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    if (cx >= 0 && cx <= viewport.width && cy >= 0 && cy <= viewport.height) {
+      return box;
+    }
+    await target.evaluate((el) => {
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    });
+    return target.boundingBox();
   }
-  await target.evaluate((el) => {
-    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-  });
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const box = await target.boundingBox();
+    if (!box) {
+      return null;
+    }
+    if (isBoxActionableInViewport(box, viewport)) {
+      return box;
+    }
+    await target.evaluate((el) => {
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    });
+    await sleep(80);
+  }
   return target.boundingBox();
 }
 
@@ -1349,6 +1455,20 @@ export async function runScenario(page, scenario, log, state) {
           );
         }
       }
+      if (!state.recording?.allowOffViewport) {
+        const viewport = await cssViewport(page, page.viewportSize() ?? DEFAULT_VIEWPORT);
+        const box = await scrollToTarget(page, waitTarget, state);
+        if (!box || !isBoxActionableInViewport(box, viewport)) {
+          throw new Error(
+            viewportBoundsError(
+              step,
+              index,
+              steps.length,
+              "waitFor target is not actionable inside the recorded viewport",
+            ),
+          );
+        }
+      }
       continue;
     }
     if (action === "goto") {
@@ -1376,7 +1496,7 @@ export async function runScenario(page, scenario, log, state) {
           ? locatorFor(page, step).nth(step.nth)
           : locatorFor(page, step).first();
       await dragLocator.waitFor({ state: "visible", timeout: 15_000 });
-      const box = await scrollToTarget(page, dragLocator);
+      const box = await scrollToTarget(page, dragLocator, state);
       if (!box) {
         throw new Error(`no bounding box for drag ${JSON.stringify(step)}`);
       }
@@ -1384,6 +1504,16 @@ export async function runScenario(page, scenario, log, state) {
       const target = targetPoint(box, viewport);
       if (!target) {
         throw new Error(`drag target is outside the viewport: ${JSON.stringify(step)}`);
+      }
+      if (!state.recording?.allowOffViewport && !isBoxActionableInViewport(box, viewport)) {
+        throw new Error(
+          viewportBoundsError(
+            step,
+            index,
+            steps.length,
+            "drag target is not actionable inside the recorded viewport",
+          ),
+        );
       }
       const deltaX = Number(step.deltaX) || 0;
       const deltaY = Number(step.deltaY) || 0;
@@ -1396,7 +1526,10 @@ export async function runScenario(page, scenario, log, state) {
       const startX = target.x;
       const startY = target.y;
       if (effects.cursor) {
-        await animateMove(page, state, startX, startY, { hover: true });
+        await animateMove(page, state, startX, startY, {
+          hover: true,
+          stepLabel: stepLabel(step),
+        });
         await installOverlay(page, state);
         await syncCursor(page, state);
       } else {
@@ -1410,6 +1543,7 @@ export async function runScenario(page, scenario, log, state) {
           hover: true,
           steps: dragSteps,
           durationMs: dragDurationMs,
+          stepLabel: stepLabel(step),
         });
       } else {
         await page.mouse.move(startX + deltaX, startY + deltaY, { steps: dragSteps });
@@ -1440,14 +1574,33 @@ export async function runScenario(page, scenario, log, state) {
         );
       }
     }
-    const box = await scrollToTarget(page, targetLocator);
+    const box = await scrollToTarget(page, targetLocator, state);
     if (!box) {
       throw new Error(`no bounding box for ${JSON.stringify(step)}`);
     }
     const viewport = await cssViewport(page, page.viewportSize() ?? DEFAULT_VIEWPORT);
     const target = targetPoint(box, viewport);
     if (!target) {
-      throw new Error(`target is outside the viewport even after scrolling: ${JSON.stringify(step)}`);
+      throw new Error(
+        state.recording?.allowOffViewport
+          ? `target is outside the viewport even after scrolling: ${JSON.stringify(step)}`
+          : viewportBoundsError(
+              step,
+              index,
+              steps.length,
+              "target is outside the recorded viewport even after scrolling",
+            ),
+      );
+    }
+    if (!state.recording?.allowOffViewport && !isBoxActionableInViewport(box, viewport)) {
+      throw new Error(
+        viewportBoundsError(
+          step,
+          index,
+          steps.length,
+          "target is not actionable inside the recorded viewport (too little visible area)",
+        ),
+      );
     }
     const { x, y } = target;
     const input = resolveInput(step, state);
@@ -1504,6 +1657,7 @@ export async function runScenario(page, scenario, log, state) {
       await animateMove(page, state, x, y, {
         hover,
         durationMs: clickZoom ? moveMs : undefined,
+        stepLabel: stepLabel(step),
       });
       await installOverlay(page, state);
       await syncCursor(page, state);
@@ -1691,6 +1845,7 @@ export async function prepareRecording(options) {
     throw new Error(`refusing to record:\n- ${problems.join("\n- ")}`);
   }
   const effects = resolveEffects(scenario);
+  const recording = resolveRecordingPolicy(scenario);
   if (authMode) {
     for (const warning of storageStateWarnings(options.storageState)) {
       process.stderr.write(`warning: ${warning}\n`);
@@ -1761,6 +1916,7 @@ export async function prepareRecording(options) {
     isRecordedCursorVisible: true,
     lastClickLogEntry: undefined,
     effects,
+    recording,
     captionLocale: resolveCaptionLocale(scenario),
     touch: Boolean(contextOptions.hasTouch),
   };
@@ -1995,6 +2151,11 @@ export function validateScenario(scenario, options = {}) {
   }
   try {
     resolveEffects(scenario);
+  } catch (error) {
+    problems.push(error.message);
+  }
+  try {
+    resolveRecordingPolicy(scenario);
   } catch (error) {
     problems.push(error.message);
   }

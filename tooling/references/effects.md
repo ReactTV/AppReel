@@ -24,6 +24,24 @@ and decide later:
 node scripts/render-auto-zoom.mjs --video demo.webm --clicks demo.clicks.jsonl --out zoomed.mp4
 ```
 
+## Recorded viewport bounds
+
+The screencast rectangle (`scenario.viewport`, default 1920×1080) is the stage.
+By default every pointer move and click must stay inside it: targets are
+scrolled until enough of the element is visible, `waitFor` steps must land
+on-screen, and a cursor path that would travel outside the frame fails the
+recording with a step index.
+
+Opt out only when you deliberately interact with off-screen UI:
+
+```json
+{
+  "recording": { "allowOffViewport": true }
+}
+```
+
+Unknown keys under `recording` are refused at parse time, same as `effects`.
+
 ## Pointer
 
 The icon is read off the step's own `action`, not sniffed live from the page:

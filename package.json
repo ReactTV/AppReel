@@ -25,6 +25,9 @@
   "engines": {
     "node": ">=20"
   },
+  "scripts": {
+    "test": "node --test tooling/*.test.mjs"
+  },
   "dependencies": {
     "playwright": "^1.63.0"
   },

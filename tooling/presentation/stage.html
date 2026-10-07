@@ -256,6 +256,14 @@
         display: block;
       }
 
+      /* Clips are 16:9; a taller chrome viewport (vertical fill) is not. Cover
+         would crop the left and right at full zoom — contain keeps the full
+         browser width visible (letterboxing inside the screen if needed). */
+      .frame-chrome .screen video,
+      .frame-none .screen video {
+        object-fit: contain;
+      }
+
       /* --- desktop: a monitor mockup (bezel + chin + stand) --- */
       .frame-desktop {
         width: 840px;
