@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Recorder
+
+- Pointer actions stay inside the recorded viewport by default; `scenario.recording.allowOffViewport`
+  opts out. A target needs at least 28×28 CSS px visible to count as actionable (was 32×32), so
+  small icon buttons are clickable.
+- The drawn cursor is installed in the top page only. Embedded iframes (video players) no longer
+  each show a stray arrow at their top-left.
+
 ## 0.2.0
 
 ### Presentation

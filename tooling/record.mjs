@@ -557,6 +557,12 @@ export function bringOverlayToFront(doc = globalThis.document) {
 }
 
 function installCursor() {
+  // addInitScript also runs in every iframe (embedded video players), which
+  // would each draw a stray arrow at their own top-left. Only the top page
+  // carries the pointer.
+  if (window !== window.top) {
+    return;
+  }
   if (window.__tvrCursor?.mount) {
     window.__tvrCursor.mount();
     return;
@@ -1265,7 +1271,8 @@ export function viewportHitArea(box, viewport = DEFAULT_VIEWPORT) {
   return (right - left) * (bottom - top);
 }
 
-const MIN_VIEWPORT_HIT_AREA = 32 * 32;
+// Small icon buttons (28×28 CSS px is common) must still count as actionable.
+const MIN_VIEWPORT_HIT_AREA = 28 * 28;
 
 export function isBoxActionableInViewport(
   box,

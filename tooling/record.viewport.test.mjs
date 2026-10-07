@@ -39,7 +39,7 @@ describe("targetPoint", () => {
 describe("isBoxActionableInViewport", () => {
   it("requires a minimum visible area", () => {
     assert.equal(isBoxActionableInViewport({ x: 0, y: 0, width: 10, height: 10 }, VIEWPORT), false);
-    assert.equal(isBoxActionableInViewport({ x: 0, y: 0, width: 40, height: 40 }, VIEWPORT), true);
+    assert.equal(isBoxActionableInViewport({ x: 0, y: 0, width: 28, height: 28 }, VIEWPORT), true);
   });
 });
 
