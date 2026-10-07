@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+### Presentation
+
+- When a screen's column `label` is empty (hidden above the frame), the device chrome's `.screen`
+  region grows to fill the vertical band between the title header and narration footer instead of
+  leaving a gap.
+- Chrome frame tabs fall back to the URL host segment when `label` is empty but `url` is set.
+
 ## 0.1.9
 
 ### Pacing

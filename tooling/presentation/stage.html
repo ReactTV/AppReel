@@ -716,7 +716,8 @@
           tabbar.className = "tabbar";
           const tab = document.createElement("div");
           tab.className = "tab";
-          tab.textContent = screen.label || "New Tab";
+          tab.textContent =
+            screen.label || screen.url?.split("/")[0] || "New Tab";
           tabbar.appendChild(tab);
           win.appendChild(tabbar);
           const addressbar = document.createElement("div");
@@ -781,6 +782,42 @@
 
       const ROW_GAP = 80;
       const ENTER_MS = 700;
+      const CANVAS_INNER_H = 950;
+
+      // Grow .screen regions when a column has no label so the device chrome
+      // uses the vertical band between the title header and narration footer.
+      function layoutColumnsVertically(built) {
+        const root = document.documentElement;
+        const headerH =
+          parseFloat(getComputedStyle(root).getPropertyValue("--header-h")) || 140;
+        const narrationH =
+          parseFloat(getComputedStyle(root).getPropertyValue("--narration-h")) ||
+          240;
+        const availableColumnH = CANVAS_INNER_H - headerH - narrationH;
+
+        for (const { column } of built) {
+          const label = column.querySelector(":scope > .label");
+          const labelH = label?.textContent?.trim() ? label.offsetHeight : 0;
+          const screen = column.querySelector(".screen");
+          if (!screen) continue;
+
+          let nonScreenH = 0;
+          for (const child of column.children) {
+            if (child === label) continue;
+            if (child.contains(screen)) {
+              nonScreenH += child.offsetHeight - screen.offsetHeight;
+            } else {
+              nonScreenH += child.offsetHeight;
+            }
+          }
+
+          const naturalScreenH = screen.offsetHeight;
+          const maxScreenH = availableColumnH - labelH - nonScreenH;
+          if (maxScreenH > naturalScreenH) {
+            screen.style.height = `${maxScreenH}px`;
+          }
+        }
+      }
 
       // Screens with an enterAtMs/exitAtMs are on stage for only part of the
       // video. Every screen stays laid out in the row the whole time, so
@@ -831,6 +868,7 @@
         const built = screens.map(buildFrame);
         built.forEach(({ column }) => stageRow.appendChild(column));
         await Promise.all(built.map(({ ready }) => ready));
+        layoutColumnsVertically(built);
 
         // Scale the whole row so the most screens ever on stage at once fit
         // the 1800px canvas, never growing past natural size.
