@@ -65,8 +65,12 @@ the rules are built from.
    Never leave a gap of 1 to ~3s between two stretches in the same area. If they fit in one crop,
    rule 2 already says to merge them.
 4. **The focus goes on the first step only.** First step: `holdZoomAfter: true` and `zoomFocus`.
-   Middle steps: neither, they inherit. Last step: `releaseZoomHold: true`. Only a pointer step
-   (`click`, `type`, …) can start a stretch: `waitFor` ignores every zoom option. Only a pointer
+   Middle steps: neither, they inherit. Last step: `releaseZoomHold: true`. A pointer step
+   (`click`, `type`, …) or a `wait` can start a stretch: `waitFor` ignores every zoom option. A
+   `wait` with `holdZoomAfter` and `zoomFocus` frames that spot while nothing is clicked (playback,
+   a list that reorders); the pointer stays put. Starting one while a stretch is held is an error,
+   so give that `wait` `releaseZoomHold` too: it zooms out of the old stretch and into the new one,
+   which the renderer turns into a glide. Only a pointer
    step or a `wait` can end one: `press` and `drag` ignore `releaseZoomHold`, so to end a stretch
    after a keypress or drag, put the release on a `wait` after it. A different `zoomFocus`
    mid-stretch is a new stretch, so make it one deliberately or don't. The only link between a focus
@@ -305,7 +309,7 @@ else is here.
 
 | Option | Where | Effect |
 |---|---|---|
-| `holdZoomAfter: true` | step | Keep the crop after this click instead of zooming out |
+| `holdZoomAfter: true` | step | Keep the crop after this click instead of zooming out. On a `wait` with `zoomFocus`, start a stretch there with no click |
 | `releaseZoomHold: true` | step | Zoom out after this step. Works whether or not a hold is active |
 | `zoomFocus: { cx, cy }` | step | Frame this point instead of following the pointer. Stays active until the hold is released |
 | `zoomScale` | step or scenario | Zoom level, above 1 up to 4 (default 1.5). On a step, it sets the stretch that step starts, and the steps it holds through inherit it; on the scenario, it is the default for every stretch. A glide between regions at different levels eases between them |

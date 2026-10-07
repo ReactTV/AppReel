@@ -28,8 +28,9 @@ node scripts/render-auto-zoom.mjs --video demo.webm --clicks demo.clicks.jsonl -
 
 The screencast rectangle (`scenario.viewport`, default 1920×1080) is the stage.
 By default every pointer move and click must stay inside it: targets are
-scrolled until enough of the element is visible, `waitFor` steps must land
-on-screen, and a cursor path that would travel outside the frame fails the
+scrolled until the element is wholly on screen or at least 28×28 CSS px of it
+is (a small icon button counts once it is fully visible), `waitFor` steps must
+land on-screen, and a cursor path that would travel outside the frame fails the
 recording with a step index.
 
 Opt out only when you deliberately interact with off-screen UI:

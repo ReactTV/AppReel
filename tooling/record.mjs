@@ -1271,7 +1271,9 @@ export function viewportHitArea(box, viewport = DEFAULT_VIEWPORT) {
   return (right - left) * (bottom - top);
 }
 
-// Small icon buttons (28×28 CSS px is common) must still count as actionable.
+// A partly clipped target needs at least this much of itself on screen. A
+// target wholly inside the viewport is actionable at any size (icon buttons
+// can be under 20px).
 const MIN_VIEWPORT_HIT_AREA = 28 * 28;
 
 export function isBoxActionableInViewport(
@@ -1279,7 +1281,11 @@ export function isBoxActionableInViewport(
   viewport = DEFAULT_VIEWPORT,
   minArea = MIN_VIEWPORT_HIT_AREA,
 ) {
-  return viewportHitArea(box, viewport) >= minArea;
+  const area = viewportHitArea(box, viewport);
+  if (area > 0 && area >= box.width * box.height) {
+    return true;
+  }
+  return area >= minArea;
 }
 
 export function isPointInViewport(x, y, viewport = DEFAULT_VIEWPORT) {
@@ -1421,6 +1427,43 @@ export async function runScenario(page, scenario, log, state) {
         state.activeZoomStartT = undefined;
         state.activeZoomFocus = undefined;
         state.activeZoomScale = undefined;
+      }
+      // A wait can start a stretch on its own: the camera frames `zoomFocus`
+      // while nothing is clicked (watching playback, a list reorder). The
+      // pointer stays put; the log gets a focus-only entry, no click ring.
+      if (step.holdZoomAfter === true && effects.zoom) {
+        const focus = normalizeZoomFocus(step.zoomFocus);
+        if (!focus) {
+          throw new Error(
+            `step ${index + 1}/${steps.length}: a wait that starts a zoom needs zoomFocus — ${JSON.stringify(step)}`,
+          );
+        }
+        if (state.zoomHeld) {
+          throw new Error(
+            `step ${index + 1}/${steps.length}: a wait can't start a zoom inside a held one; add releaseZoomHold to it — ${JSON.stringify(step)}`,
+          );
+        }
+        const zoomInMs = resolveStepTiming(step, state, "zoomInMs", CLICK_ZOOM_IN_MS);
+        const zoomStartT = frameAlignCaptureMs(Date.now() - state.startedAt);
+        const scale = step.zoomScale ?? state.zoomScale;
+        state.activeZoomStartT = zoomStartT;
+        state.activeZoomFocus = focus;
+        state.activeZoomScale = scale;
+        await sleep(zoomInMs);
+        const t = Date.now() - state.startedAt;
+        log({
+          t,
+          action: "click",
+          button: "left",
+          cx: focus.cx,
+          cy: focus.cy,
+          zoomStartT,
+          ...(scale !== undefined ? { scale } : {}),
+          moveStartT: t,
+          holdZoom: true,
+          focusOnly: true,
+        });
+        state.zoomHeld = true;
       }
       await sleep(Number(step.ms ?? step.wait ?? 0));
       continue;

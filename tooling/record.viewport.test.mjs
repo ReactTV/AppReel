@@ -37,9 +37,14 @@ describe("targetPoint", () => {
 });
 
 describe("isBoxActionableInViewport", () => {
-  it("requires a minimum visible area", () => {
-    assert.equal(isBoxActionableInViewport({ x: 0, y: 0, width: 10, height: 10 }, VIEWPORT), false);
-    assert.equal(isBoxActionableInViewport({ x: 0, y: 0, width: 28, height: 28 }, VIEWPORT), true);
+  it("accepts a fully visible target of any size", () => {
+    assert.equal(isBoxActionableInViewport({ x: 0, y: 0, width: 10, height: 10 }, VIEWPORT), true);
+    assert.equal(isBoxActionableInViewport({ x: 360, y: 100, width: 17, height: 18 }, VIEWPORT), true);
+  });
+
+  it("requires a minimum visible area of a partly clipped target", () => {
+    assert.equal(isBoxActionableInViewport({ x: -40, y: 0, width: 50, height: 10 }, VIEWPORT), false);
+    assert.equal(isBoxActionableInViewport({ x: -10, y: 0, width: 50, height: 50 }, VIEWPORT), true);
   });
 });
 

@@ -62,10 +62,13 @@ function mergedRegions(suggestions) {
  */
 export function checkPacing({ clicks = [], steps = [], narration = [], zooms = [] }) {
   const findings = [];
+  // A wait that starts a zoom logs a focus-only entry: no pointer moves, so
+  // it can't rush or jump.
+  const pointerClicks = clicks.filter((click) => !click.focusOnly);
 
-  for (let i = 1; i < clicks.length; i += 1) {
-    const prev = clicks[i - 1];
-    const next = clicks[i];
+  for (let i = 1; i < pointerClicks.length; i += 1) {
+    const prev = pointerClicks[i - 1];
+    const next = pointerClicks[i];
     const dwellMs = next.moveStartT - prev.t;
     if (Number.isFinite(dwellMs) && dwellMs < PACING_MIN_DWELL_MS) {
       findings.push({
@@ -78,7 +81,7 @@ export function checkPacing({ clicks = [], steps = [], narration = [], zooms = [
     }
   }
 
-  for (const click of clicks) {
+  for (const click of pointerClicks) {
     const approachMs = click.t - click.moveStartT;
     if (Number.isFinite(approachMs) && approachMs < PACING_MIN_APPROACH_MS) {
       findings.push({

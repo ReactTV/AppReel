@@ -5,8 +5,11 @@
 ### Recorder
 
 - Pointer actions stay inside the recorded viewport by default; `scenario.recording.allowOffViewport`
-  opts out. A target needs at least 28×28 CSS px visible to count as actionable (was 32×32), so
-  small icon buttons are clickable.
+  opts out. A target wholly inside the viewport is actionable at any size; a partly clipped one
+  needs at least 28×28 CSS px visible.
+- A `wait` with `holdZoomAfter` and `zoomFocus` starts a zoom stretch without a click, for
+  framing playback or a reorder. It logs a focus-only entry (`focusOnly: true`) that the pacing
+  check skips.
 - The drawn cursor is installed in the top page only. Embedded iframes (video players) no longer
   each show a stray arrow at their top-left.
 
