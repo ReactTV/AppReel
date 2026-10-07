@@ -10,6 +10,9 @@
 - A `wait` with `holdZoomAfter` and `zoomFocus` starts a zoom stretch without a click, for
   framing playback or a reorder. It logs a focus-only entry (`focusOnly: true`) that the pacing
   check skips.
+- `captureRecording` holds the last frame until capture stops by default (was opt-in via
+  `holdLastFrame`). A flow ending on a still page no longer produces a clip shorter than its
+  logs, which stalled the zoom render. Pass `holdLastFrame: false` to opt out.
 - The drawn cursor is installed in the top page only. Embedded iframes (video players) no longer
   each show a stray arrow at their top-left.
 

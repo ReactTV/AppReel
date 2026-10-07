@@ -2095,8 +2095,10 @@ export async function captureRecording(prepared, options = {}) {
 
   // The screencast only sends a frame when the page repaints, so a page that
   // has settled would otherwise end the video on its last change rather than
-  // when capture stopped.
-  if (options.holdLastFrame && frameLog.length > 0) {
+  // when capture stopped — shorter than the click log, whose zoom regions then
+  // point past the end of the clip and stall the zoom render. On by default;
+  // `holdLastFrame: false` opts out.
+  if (options.holdLastFrame !== false && frameLog.length > 0) {
     frameLog.push({ file: frameLog[frameLog.length - 1].file, atMs: stoppedAt - state.startedAt });
   }
 
