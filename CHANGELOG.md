@@ -25,6 +25,19 @@
 - The drawn cursor is installed in the top page only. Embedded iframes (video players) no longer
   each show a stray arrow at their top-left.
 
+### Presentation
+
+- Screens fill the room between the header and the narration: the row zooms up as well as down,
+  keeping each frame's proportions. A lone 16:9 browser frame goes from about 896px to 1120px wide
+  in the 1080p video. The header takes only the height of what it shows, so a video without a title
+  or brand gets bigger screens, as does one without column labels. Labels stay 22px at any zoom.
+- The narration zone is exactly its header and one caption line (103px, was 240px), pinned near
+  the bottom of the frame, so the screens sit as close above it as they do below the title.
+- Narration is one line, always: `validateScenario` refuses a step's `narration` over 70
+  characters (`NARRATION_MAX_CHARS`), and the caption never wraps on stage.
+- Replaces 0.2.0's stretching of an unlabeled screen's height, which letterboxed the clip instead
+  of enlarging it.
+
 ### Pacing
 
 - Reports optional steps that waited over 1s for a target that never appeared (`skipped`).

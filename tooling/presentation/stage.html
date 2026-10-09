@@ -25,14 +25,13 @@
      1920x1080 (16:9), so the canvas is scaled to the frame width and centered
      vertically.
 
-     The canvas's vertical budget: header, label, screens, then a fixed-height
-     narration zone at the bottom. Any number of screens can appear in the
-     middle row — it zooms down to fit 1800px width, never up past its natural
-     size, so this doesn't need per-count hand tuning the way a fixed pair did. */
+     The canvas's vertical budget: the header (as tall as its content), then
+     the band of screens, then a fixed-height narration zone at the bottom.
+     The row of screens zooms to fill the band — up or down, whichever of its
+     width or height runs out first — so dropping the title or the column
+     labels gives the screens that room. */
       :root {
-        --header-h: 140px;
-        --narration-h: 240px;
-        --frame-margin: 31.25px;
+        --narration-h: 103px;
       }
       .canvas {
         position: absolute;
@@ -42,21 +41,25 @@
         height: 950px;
         transform-origin: 0 0;
         transform: translateY(33.333px) scale(1.066667);
+      }
+      /* Spans header to narration; its top and height are set by fitStage(). */
+      .stage-band {
+        position: absolute;
+        left: 0;
+        right: 0;
         display: flex;
-        flex-direction: column;
+        align-items: center;
+        justify-content: center;
       }
       .stage-row {
-        width: 100%;
+        width: max-content;
         flex: none;
         display: flex;
         align-items: flex-start;
-        justify-content: center;
         gap: 80px;
-        padding-top: var(--header-h);
-        transform-origin: top center;
       }
-      /* --- Header: wordmark + flow-defined title, centered in the space above
-     the labels. Must stay within the stage's 140px top padding. --- */
+      /* --- Header: wordmark + flow-defined title, top-center. The screens
+     start below wherever it ends. --- */
       .header {
         position: absolute;
         top: 20px;
@@ -112,8 +115,10 @@
         display: none;
       }
       /* --- Narration: a small header (Step 3, See it in action) over one line of
-     what is happening, centered in the fixed-height zone at the bottom of the
-     frame. --- */
+     what is happening, sized to exactly those two rows and pinned near the
+     bottom of the frame, so the band above sits as close to it as it does to
+     the title. One line only: record.mjs refuses longer narration
+     (NARRATION_MAX_CHARS), and nowrap keeps it out of the band regardless. --- */
       .narration {
         position: absolute;
         left: 0;
@@ -122,10 +127,10 @@
         height: var(--narration-h);
         display: flex;
         flex-direction: column;
-        justify-content: center;
+        justify-content: flex-end;
         align-items: center;
         gap: 12px;
-        padding: 0 120px;
+        padding: 0 120px 8px;
       }
       /* Fixed heights, so a line without a header sits where one with a header
          does, and the text never jumps between the two. */
@@ -172,6 +177,7 @@
         color: #f4d35e;
         font-size: 42px;
         font-weight: 600;
+        white-space: nowrap;
       }
       /* Supporting context rather than a step to follow: white, and a lighter
          weight, so it sits back from the yellow steps. */
@@ -236,13 +242,15 @@
         flex-direction: column;
         align-items: center;
       }
+      /* Divided by the row's zoom so a label stays the same size however far
+         the screens under it are zoomed. */
       .label {
         color: rgba(255, 255, 255, 0.55);
-        font-size: 22px;
+        font-size: calc(22px / var(--stage-zoom, 1));
         font-weight: 600;
         letter-spacing: 0.14em;
         text-transform: uppercase;
-        margin-bottom: 28px;
+        margin-bottom: calc(28px / var(--stage-zoom, 1));
       }
       .label:empty {
         display: none;
@@ -546,7 +554,9 @@
         <div class="wordmark" id="wordmark"></div>
         <div class="title" id="title"></div>
       </div>
-      <div class="stage-row" id="stage-row"></div>
+      <div class="stage-band" id="stage-band">
+        <div class="stage-row" id="stage-row"></div>
+      </div>
       <div class="narration">
         <div class="narration-header-box" id="narration-header-box"></div>
         <div class="narration-lines" id="narration-lines"></div>
@@ -790,41 +800,41 @@
 
       const ROW_GAP = 80;
       const ENTER_MS = 700;
-      const CANVAS_INNER_H = 950;
+      const CANVAS_W = 1800;
+      // Clear space between the band of screens and the header above it or
+      // the narration zone below it (which has its own clear space too).
+      const BAND_GAP = 20;
 
-      // Grow .screen regions when a column has no label so the device chrome
-      // uses the vertical band between the title header and narration footer.
-      function layoutColumnsVertically(built) {
-        const root = document.documentElement;
-        const headerH =
-          parseFloat(getComputedStyle(root).getPropertyValue("--header-h")) || 140;
-        const narrationH =
-          parseFloat(getComputedStyle(root).getPropertyValue("--narration-h")) ||
-          240;
-        const availableColumnH = CANVAS_INNER_H - headerH - narrationH;
+      // Sizes the band to the room between the header and the narration zone,
+      // then zooms the row to fill it: as wide as the most screens ever on
+      // stage at once allow, as tall as the tallest column allows. Labels are
+      // held at their natural size (see .label), so only the rest of a column
+      // counts toward the zoom. Runs once the header's brand and fonts are in,
+      // since their height decides where the band starts.
+      function fitStage(built) {
+        const header = document.querySelector(".header");
+        const narration = document.querySelector(".narration");
+        const band = document.getElementById("stage-band");
+        const row = document.getElementById("stage-row");
+        const top = header.offsetTop + header.offsetHeight + BAND_GAP;
+        const bandH = narration.offsetTop - BAND_GAP - top;
+        band.style.top = `${top}px`;
+        band.style.height = `${bandH}px`;
 
-        for (const { column } of built) {
-          const label = column.querySelector(":scope > .label");
-          const labelH = label?.textContent?.trim() ? label.offsetHeight : 0;
-          const screen = column.querySelector(".screen");
-          if (!screen) continue;
-
-          let nonScreenH = 0;
-          for (const child of column.children) {
-            if (child === label) continue;
-            if (child.contains(screen)) {
-              nonScreenH += child.offsetHeight - screen.offsetHeight;
-            } else {
-              nonScreenH += child.offsetHeight;
-            }
-          }
-
-          const naturalScreenH = screen.offsetHeight;
-          const maxScreenH = availableColumnH - labelH - nonScreenH;
-          if (maxScreenH > naturalScreenH) {
-            screen.style.height = `${maxScreenH}px`;
-          }
-        }
+        const labelH = Math.max(
+          0,
+          ...built.map(({ column }) => {
+            const label = column.querySelector(":scope > .label");
+            if (!label.textContent.trim()) return 0;
+            return label.offsetHeight + parseFloat(getComputedStyle(label).marginBottom);
+          }),
+        );
+        const zoom = Math.min(
+          CANVAS_W / widestRow(built),
+          (bandH - labelH) / (row.offsetHeight - labelH),
+        );
+        row.style.setProperty("--stage-zoom", zoom);
+        row.style.zoom = zoom;
       }
 
       // Screens with an enterAtMs/exitAtMs are on stage for only part of the
@@ -876,13 +886,7 @@
         const built = screens.map(buildFrame);
         built.forEach(({ column }) => stageRow.appendChild(column));
         await Promise.all(built.map(({ ready }) => ready));
-        layoutColumnsVertically(built);
-
-        // Scale the whole row so the most screens ever on stage at once fit
-        // the 1800px canvas, never growing past natural size.
-        stageRow.style.zoom = Math.min(1, 1800 / widestRow(built));
         placeColumns(built, 0, { animate: false });
-
         return built;
       }
 
@@ -1085,6 +1089,8 @@
       async function main() {
         const introDone = playIntro();
         const [built] = await Promise.all([buildStage(), loadBrand()]);
+        await document.fonts.ready;
+        fitStage(built);
         await introDone;
         const videos = built.map(({ video }) => video);
         await playAll(videos);

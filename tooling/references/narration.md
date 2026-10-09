@@ -44,15 +44,18 @@ A step carries the line:
 ## Layout
 
 The stage has an explicit vertical budget, so narration always has a safe zone. On its 1800x950
-canvas: a 140px header, then the row of screens, then a **fixed 240px narration zone** pinned to
-the bottom of the recorded frame (`--header-h`, `--narration-h` at the top of
+canvas: the header (as tall as its content), then the row of screens, then a **fixed 103px
+narration zone** pinned to the bottom of the recorded frame (`--narration-h` at the top of
 `presentation/stage.html`). The zone's height doesn't change with how many screens are on stage or
-which frames wrap them — the row above it zooms down to fit instead (see `stage.html`'s
-`buildStage`), so narration always has the same amount of room regardless of layout.
+which frames wrap them — the row above it zooms to fill the room left over instead (see
+`stage.html`'s `fitStage`), so narration always has the same amount of room regardless of layout.
 
-The header (30px), its gap and a one-line caption (53px) take about 90px, comfortably centered in
-the 240px zone. Keep at least **26px** of clear space above and below the text if you ever change
-`--narration-h`.
+The zone is exactly its two rows: the header (30px), a 12px gap and **one** line of caption (53px),
+over an 8px bottom margin. It leaves no room for a second caption line, which is what lets the
+screens come down to 20px above the header, the same clear space they keep below the title. A
+caption is therefore capped at **70 characters** (`NARRATION_MAX_CHARS` in `record.mjs`): 70 of
+the widest characters at 42px still fit the zone's 1560px. `validateScenario` refuses a longer one
+before a browser opens, and the line never wraps on stage.
 
 ## The pattern
 
@@ -185,8 +188,9 @@ never compete with the screens. Keep it this subtle.
 3. **Cover the whole flow.** The first beat carries a line from the moment the flow starts acting
    (the opening `wait` that lets the page settle needs none), and the last line stays to the end.
    Clear a line only on purpose.
-4. **One line, always.** Longer than ~60 characters wraps to two lines. The narration zone has room
-   for that, but a caption that long is a paragraph, not a caption.
+4. **One line, always.** The narration zone holds a single line, so a caption over 70 characters is
+   refused when the scenario is validated (see [Layout](#layout)). A caption anywhere near that
+   long is a paragraph, not a caption; rule 2's ~40 is the target.
 5. **Write it for someone watching every screen.** In a multi-screen flow every screen shares one
    line, so word each line for the whole video, not for its own screen: "Paste the sync key" says
    more than "Right-click the key field".

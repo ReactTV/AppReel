@@ -45,6 +45,9 @@ export const DEFAULT_TAIL_PADDING_MS = 5000;
 // "step" (the default) is a line the viewer follows; "aside" is supporting
 // context. See references/narration.md.
 const NARRATION_STYLES = ["step", "aside"];
+// The stage's narration zone holds exactly one line: 70 characters at about
+// 22px each, the widest text runs, fit its 1560px. See references/narration.md.
+export const NARRATION_MAX_CHARS = 70;
 // Which screen(s) a line calls attention to: a screen's own `name` (from the
 // flow's screens config), "all", or "none". Not a closed enum — screen names
 // are defined per flow, so only the two reserved values are checked here; an
@@ -2311,6 +2314,10 @@ export function validateScenario(scenario, options = {}) {
     }
     if (steps[index].narration !== undefined && typeof steps[index].narration !== "string") {
       problems.push(`steps[${index}].narration must be a string (use "" to clear it)`);
+    } else if (steps[index].narration?.length > NARRATION_MAX_CHARS) {
+      problems.push(
+        `steps[${index}].narration is ${steps[index].narration.length} characters; one line holds ${NARRATION_MAX_CHARS}`,
+      );
     }
     const narrationStyle = steps[index].narrationStyle;
     if (narrationStyle !== undefined && !NARRATION_STYLES.includes(narrationStyle)) {

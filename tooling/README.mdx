@@ -253,9 +253,10 @@ away only at the final encode, once.
 
 `presentation/stage.html` is a fixed 1920x1080 frame; its layout is designed on an 1800x950 canvas
 that is scaled to the frame width and centered vertically. The canvas has an explicit vertical
-budget (header, then the row of screens, then a fixed-height zone at the bottom for
-[narration](./references/narration.md#layout)) — the row of screens zooms down to fit whatever
-count and frame types you give it, so the narration zone's size never depends on layout.
+budget (the header, as tall as its content, then the band of screens, then a fixed-height zone at
+the bottom for [narration](./references/narration.md#layout)). The row of screens zooms up or down
+to fill its band for whatever count and frame types you give it, so a video without a title or
+column labels gets bigger screens, and the narration zone's size never depends on layout.
 
 **Why `record.mjs` uses `onFrame` instead of `{ path }`:** letting Playwright mux the video
 internally (the `{ path }` option) routes every frame through Playwright's own VP8 encoder
